@@ -315,7 +315,7 @@ public:
         mutexLock(&mutex_Misc);
         
         snprintf(TEMP_c, sizeof TEMP_c, 
-            "%2.1f\u00B0C\n%2.1f\u00B0C\n%2d.%d\u00B0C", 
+            "%2.1f\u2103\n%2.1f\u2103\n%2d.%d\u2103", 
             SOC_temperatureF, PCB_temperatureF, skin_temperaturemiliC / 1000, (skin_temperaturemiliC / 100) % 10);
 
         if (idletick0 > systemtickfrequency_impl) idletick0 = systemtickfrequency_impl;

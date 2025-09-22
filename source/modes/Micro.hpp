@@ -179,50 +179,50 @@ public:
                         break;
                     case 0x52414D: // "RAM"
                         if (!(seen_flags & 4)) {
-                            renderItems.push_back({2, "RAM", RAM_var_compressed_c, RAM_volt_c, settings.realVolts});
+                            renderItems.push_back({2, "内存", RAM_var_compressed_c, RAM_volt_c, settings.realVolts});
                             seen_flags |= 4;
                         }
                         break;
                     case 0x534F43: // "SOC"
                         if (!(seen_flags & 8)) {
-                            renderItems.push_back({3, "SOC", soc_temperature_c, SOC_volt_c, settings.realVolts && settings.showSOCVoltage});
+                            renderItems.push_back({3, "核心", soc_temperature_c, SOC_volt_c, settings.realVolts && settings.showSOCVoltage});
                             seen_flags |= 8;
                         }
                         break;
                     case 0x544D50: // "TMP"
                         if (!(seen_flags & 16)) {
-                            renderItems.push_back({4, "TMP", skin_temperature_c, SOC_volt_c, settings.realVolts && settings.showSOCVoltage});
+                            renderItems.push_back({4, "温度", skin_temperature_c, SOC_volt_c, settings.realVolts && settings.showSOCVoltage});
                             seen_flags |= 16;
                         }
                         break;
                     case 0x524553: // "RES"
                         if (!(seen_flags & 128)) {
-                            renderItems.push_back({7, "RES", RES_var_compressed_c, nullptr, false}); // We'll reuse FPS buffer temporarily
+                            renderItems.push_back({7, "分辨率", RES_var_compressed_c, nullptr, false}); // We'll reuse FPS buffer temporarily
                             seen_flags |= 128;
                             resolutionShow = true;
                         }
                         break;
                     case 0x465053: // "FPS"
                         if (!(seen_flags & 32)) {
-                            renderItems.push_back({5, "FPS", FPS_var_compressed_c, nullptr, false});
+                            renderItems.push_back({5, "帧率", FPS_var_compressed_c, nullptr, false});
                             seen_flags |= 32;
                         }
                         break;
                     case 0x424154: // "BAT"
                         if (!(seen_flags & 64)) {
-                            renderItems.push_back({6, "BAT", Battery_c, nullptr, false});
+                            renderItems.push_back({6, "电池", Battery_c, nullptr, false});
                             seen_flags |= 64;
                         }
                         break;
                     case 0x524541: // "REA" (for READ)
                         if (len >= 4 && key[3] == 'D' && !(seen_flags & 512)) {
-                            renderItems.push_back({9, "READ", READ_var_compressed_c, nullptr, false});
+                            renderItems.push_back({9, "读取速度", READ_var_compressed_c, nullptr, false});
                             seen_flags |= 512;
                         }
                         break;
                     case 0x445443: // "DTC" 
                         if (!(seen_flags & 256) && settings.showDTC) {
-                            renderItems.push_back({8, settings.useDTCSymbol ? "\uE007" : "DTC", DTC_c, nullptr, false});
+                            renderItems.push_back({8, settings.useDTCSymbol ? "\uE007" : "时间", DTC_c, nullptr, false});
                             seen_flags |= 256;
                         }
                         break;
@@ -840,14 +840,14 @@ public:
 
         /* Integer SoC temperature + duty */
         snprintf(soc_temperature_c, sizeof soc_temperature_c,
-                 "%d°C (%d%%)",
+                 "%d℃ (%d%%)",
                  (int)SOC_temperatureF,          // SoC °C, no decimals
                  duty);                          // fan %
         
         /* Integer SOC, PCB and skin temperatures + duty                    *
          *  skin_temperaturemiliC is in milli-degrees C → divide by 1000     */
         snprintf(skin_temperature_c, sizeof skin_temperature_c,
-                 "%d°C %d°C %hu°C (%d%%)",
+                 "%d℃ %d℃ %hu℃ (%d%%)",
                  (int)SOC_temperatureF,          // SoC
                  (int)PCB_temperatureF,          // PCB
                  (uint16_t)(skin_temperaturemiliC / 1000), // skin

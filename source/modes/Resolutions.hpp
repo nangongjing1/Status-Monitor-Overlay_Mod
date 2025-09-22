@@ -129,9 +129,9 @@ public:
             if (gameStart && NxFps -> API >= 1) {
                 renderer->drawRect(base_x, base_y, 360, 200, aWithOpacity(settings.backgroundColor));
         
-                renderer->drawString("Depth:", false, base_x + 20, base_y + 20, 20, (settings.catColor));
+                renderer->drawString("纹理:", false, base_x + 20, base_y + 20, 20, (settings.catColor));
                 renderer->drawString(Resolutions_c, false, base_x + 20, base_y + 55, 18, (settings.textColor));
-                renderer->drawString("Viewport:", false, base_x + 180, base_y + 20, 20, (settings.catColor));
+                renderer->drawString("窗口:", false, base_x + 180, base_y + 20, 20, (settings.catColor));
                 renderer->drawString(Resolutions2_c, false, base_x + 180, base_y + 55, 18, (settings.textColor));
             }
             // When game is not using NVN or is incompatible
@@ -146,7 +146,7 @@ public:
                 }
         
                 renderer->drawRect(base_x, base_y, 360, 28, aWithOpacity(settings.backgroundColor));
-                renderer->drawString("Game is not running or it's incompatible.", false, base_x, base_y+20, 18, (0xF00F));
+                renderer->drawString("游戏未运行或不兼容。", false, base_x, base_y+20, 18, (0xF00F));
             }
         });
 

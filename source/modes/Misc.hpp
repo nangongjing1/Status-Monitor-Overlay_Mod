@@ -71,7 +71,7 @@ public:
 
             //Multimedia engines
             if (R_SUCCEEDED(nvdecCheck | nvencCheck | nvjpgCheck)) {
-                renderer->drawString("Multimedia clock rates:", false, 20, 165, 20, renderer->a(0xFFFF));
+                renderer->drawString("编解码器频率:", false, 20, 165, 20, renderer->a(0xFFFF));
                 if (R_SUCCEEDED(nvdecCheck))
                     renderer->drawString(NVDEC_Hz_c, false, 35, 185, 15, renderer->a(0xFFFF));
                 if (R_SUCCEEDED(nvencCheck))
@@ -81,28 +81,28 @@ public:
             }
 
             if (R_SUCCEEDED(nifmCheck)) {
-                renderer->drawString("Network", false, 20, 255, 20, renderer->a(0xFFFF));
+                renderer->drawString("网络", false, 20, 255, 20, renderer->a(0xFFFF));
                 if (!Nifm_internet_rc) {
                     if (NifmConnectionType == NifmInternetConnectionType_WiFi) {
-                        renderer->drawString("Type: Wi-Fi", false, 20, 280, 18, renderer->a(0xFFFF));
+                        renderer->drawString("Wi-Fi连接", false, 20, 280, 18, renderer->a(0xFFFF));
                         if (!Nifm_profile_rc) {
                             if (Nifm_showpass)
                                 renderer->drawString(Nifm_pass, false, 20, 305, 15, renderer->a(0xFFFF));
                             else
-                                renderer->drawString("Press Y to show password", false, 20, 305, 15, renderer->a(0xFFFF));
+                                renderer->drawString("按Y显示密码", false, 20, 305, 15, renderer->a(0xFFFF));
                         }
                     }
                     else if (NifmConnectionType == NifmInternetConnectionType_Ethernet)
-                        renderer->drawString("Type: Ethernet", false, 20, 280, 18, renderer->a(0xFFFF));
+                        renderer->drawString("有线连接", false, 20, 280, 18, renderer->a(0xFFFF));
                 }
                 else
-                    renderer->drawString("Type: Not connected", false, 20, 280, 18, renderer->a(0xFFFF));
+                    renderer->drawString("无连接", false, 20, 280, 18, renderer->a(0xFFFF));
             }
 
             
         });
         
-        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("Status Monitor", APP_VERSION, true);
+        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", APP_VERSION, true);
         rootFrame->setContent(Status);
         
         return rootFrame;
@@ -110,7 +110,7 @@ public:
 
     virtual void update() override {
 
-        snprintf(DSP_Load_c, sizeof DSP_Load_c, "DSP usage: %u%%", DSP_Load_u);
+        snprintf(DSP_Load_c, sizeof DSP_Load_c, "DSP负载: %u%%", DSP_Load_u);
         snprintf(NVDEC_Hz_c, sizeof NVDEC_Hz_c, "NVDEC: %.1f MHz", (float)NVDEC_Hz / 1000000);
         snprintf(NVENC_Hz_c, sizeof NVENC_Hz_c, "NVENC: %.1f MHz", (float)NVENC_Hz / 1000000);
         snprintf(NVJPG_Hz_c, sizeof NVJPG_Hz_c, "NVJPG: %.1f MHz", (float)NVJPG_Hz / 1000000);

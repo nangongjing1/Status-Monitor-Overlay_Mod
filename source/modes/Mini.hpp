@@ -196,23 +196,23 @@ public:
                                     width = renderer->getTextDimensions("88°C", false, fontsize).first;
                             }
                     } else if (key == "TMP") {
-                        //dimensions = renderer->drawString("88.8\u00B0C88.8\u00B0C88.8\u00B0C (100%)", false, 0, 0, fontsize, renderer->a(0x0000));
+                        //dimensions = renderer->drawString("88.8\u210388.8\u210388.8\u2103 (100%)", false, 0, 0, fontsize, renderer->a(0x0000));
                         if (!settings.realVolts) {
                             if (settings.showFanPercentage)
-                                width = renderer->getTextDimensions("88\u00B0C 88\u00B0C 88\u00B0C (100%)", false, fontsize).first;
+                                width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103 (100%)", false, fontsize).first;
                             else
-                                width = renderer->getTextDimensions("88\u00B0C 88\u00B0C 88\u00B0C", false, fontsize).first;
+                                width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103", false, fontsize).first;
                         } else {
                             if (settings.showSOCVoltage) {
                                 if (settings.showFanPercentage)
-                                    width = renderer->getTextDimensions("88\u00B0C 88\u00B0C 88\u00B0C (100%)444 mV", false, fontsize).first;
+                                    width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103 (100%)444 mV", false, fontsize).first;
                                 else
-                                    width = renderer->getTextDimensions("88\u00B0C 88\u00B0C 88\u00B0C444 mV", false, fontsize).first;
+                                    width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103444 mV", false, fontsize).first;
                             } else {
                                 if (settings.showFanPercentage)
-                                    width = renderer->getTextDimensions("88\u00B0C 88\u00B0C 88\u00B0C (100%)", false, fontsize).first;
+                                    width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103 (100%)", false, fontsize).first;
                                 else
-                                    width = renderer->getTextDimensions("88\u00B0C 88\u00B0C 88\u00B0C", false, fontsize).first;
+                                    width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103", false, fontsize).first;
                             }
                         }
                     } else if (key == "BAT") {
@@ -273,36 +273,36 @@ public:
                         flags |= 2;
                     } else if (key == "RAM" && !(flags & 4)) {
                         shouldAdd = true;
-                        labelText = "RAM";
+                        labelText = "内存";
                         flags |= 4;
                     } else if (key == "SOC" && !(flags & 8)) {
                         shouldAdd = true;
-                        labelText = "SOC";
+                        labelText = "核心";
                         flags |= 8;
                     } else if (key == "TMP" && !(flags & 16)) {
                         shouldAdd = true;
-                        labelText = "TMP";
+                        labelText = "温度";
                         flags |= 16;
                     } else if ((key == "BAT" || key == "DRAW") && !(flags & 32)) {
                         shouldAdd = true;
-                        labelText = "BAT";
+                        labelText = "电池";
                         flags |= 32;
                     } else if (key == "FPS" && !(flags & 64) && GameRunning) {
                         shouldAdd = true;
-                        labelText = "FPS";
+                        labelText = "帧率";
                         flags |= 64;
                     } else if (key == "RES" && !(flags & 128) && GameRunning) {
                         shouldAdd = true;
-                        labelText = "RES";
+                        labelText = "分辨率";
                         flags |= 128;
                         resolutionShow = true;
                     } else if (key == "READ" && !(flags & 512) && GameRunning) {
                         shouldAdd = true;
-                        labelText = "READ";
+                        labelText = "读取速度";
                         flags |= 512;
                     } else if (key == "DTC" && !(flags & 256) && settings.showDTC) {
                         shouldAdd = true;
-                        labelText = settings.useDTCSymbol ? "\uE007" : "DTC";
+                        labelText = settings.useDTCSymbol ? "\uE007" : "时间";
                         flags |= 256;
                     }
 
@@ -843,13 +843,13 @@ public:
 
         if (settings.showFanPercentage) {
             snprintf(skin_temperature_c, sizeof skin_temperature_c,
-                "%d\u00B0C %d\u00B0C %hu\u00B0C (%d%%)",
+                "%d\u2103 %d\u2103 %hu\u2103 (%d%%)",
                 (int)SOC_temperatureF, (int)PCB_temperatureF,
                 skin_temperaturemiliC / 1000,
                 (int)duty);
         } else {
             snprintf(skin_temperature_c, sizeof skin_temperature_c,
-                "%d\u00B0C %d\u00B0C %hu\u00B0C",
+                "%d\u2103 %d\u2103 %hu\u2103",
                 (int)SOC_temperatureF, (int)PCB_temperatureF,
                 skin_temperaturemiliC / 1000);
         }

@@ -92,9 +92,9 @@ public:
         
         auto* list = new tsl::elm::List();
 
-        list->addItem(new tsl::elm::CategoryHeader("Other"));
+        list->addItem(new tsl::elm::CategoryHeader("其它"));
 
-        auto* Battery = new tsl::elm::ListItem("Battery/Charger");
+        auto* Battery = new tsl::elm::ListItem("电池/充电");
         Battery->setClickListener([](uint64_t keys) {
             if (keys & KEY_A) {
                 tsl::changeTo<BatteryOverlay>();
@@ -104,7 +104,7 @@ public:
         });
         list->addItem(Battery);
 
-        auto* Misc = new tsl::elm::ListItem("Miscellaneous");
+        auto* Misc = new tsl::elm::ListItem("杂项");
         Misc->setClickListener([](uint64_t keys) {
             if (keys & KEY_A) {
                 tsl::changeTo<MiscOverlay>();
@@ -126,7 +126,7 @@ public:
         //    list->addItem(Res);
         //}
 
-        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("Status Monitor", "Modes");
+        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", "Modes");
         rootFrame->setContent(list);
 
         return rootFrame;
@@ -168,9 +168,9 @@ public:
         auto* list = new tsl::elm::List();
         
         //list->addItem(new tsl::elm::CategoryHeader("Modes " + ult::DIVIDER_SYMBOL + " \uE0E0 Enter " + ult::DIVIDER_SYMBOL + " \uE0E3 Configure"));
-        list->addItem(new tsl::elm::CategoryHeader("Modes " + ult::DIVIDER_SYMBOL + " \uE0E3 Configure"));
+        list->addItem(new tsl::elm::CategoryHeader("模式 " + ult::DIVIDER_SYMBOL + "按 \uE0E3 设置"));
 
-        auto* Full = new tsl::elm::ListItem("Full");
+        auto* Full = new tsl::elm::ListItem("完整显示");
         Full->setClickListener([](uint64_t keys) {
             if (keys & KEY_A) {
                 tsl::changeTo<FullOverlay>();
@@ -210,7 +210,7 @@ public:
             }
         }
         if (fileExist) {
-            auto* Mini = new tsl::elm::ListItem("Mini");
+            auto* Mini = new tsl::elm::ListItem("迷你样式");
             Mini->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
                     tsl::setNextOverlay(filepath, "--miniOverlay");
@@ -226,7 +226,7 @@ public:
             });
             list->addItem(Mini);
 
-            auto* Micro = new tsl::elm::ListItem("Micro");
+            auto* Micro = new tsl::elm::ListItem("微型样式");
             Micro->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
                     tsl::setNextOverlay(filepath, "--microOverlay");
@@ -254,7 +254,7 @@ public:
             //});
             //list->addItem(Graphs);
 
-            auto* comFPSGraph = new tsl::elm::ListItem("FPS Graph");
+            auto* comFPSGraph = new tsl::elm::ListItem("FPS 图表");
             comFPSGraph->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
                     tsl::changeTo<com_FPSGraph>();
@@ -269,7 +269,7 @@ public:
             });
             list->addItem(comFPSGraph);
 
-            auto* comFPSCounter = new tsl::elm::ListItem("FPS Counter");
+            auto* comFPSCounter = new tsl::elm::ListItem("FPS 计数器");
             comFPSCounter->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
                     tsl::changeTo<com_FPS>();
@@ -284,7 +284,7 @@ public:
             });
             list->addItem(comFPSCounter);
 
-            auto* Res = new tsl::elm::ListItem("Game Resolutions");
+            auto* Res = new tsl::elm::ListItem("游戏分辨率");
             Res->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
                     tsl::changeTo<ResolutionsOverlay>();
@@ -300,7 +300,7 @@ public:
             list->addItem(Res);
 
         }
-        auto* Other = new tsl::elm::ListItem("Other");
+        auto* Other = new tsl::elm::ListItem("其它条目");
         Other->setValue(ult::DROPDOWN_SYMBOL);
         Other->setClickListener([](uint64_t keys) {
             if (keys & KEY_A) {
@@ -314,7 +314,7 @@ public:
         if (!lastSelectedItem.empty())
             list->jumpToItem(lastSelectedItem);
 
-        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("Status Monitor", APP_VERSION);
+        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", "南宫镜 汉化");
         rootFrame->setContent(list);
 
         return rootFrame;
