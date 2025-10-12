@@ -1,3 +1,5 @@
+class OtherMenu;
+
 class BatteryOverlay : public tsl::Gui {
 private:
     char Battery_c[1024];
@@ -146,7 +148,9 @@ public:
             leventSignal(&renderingStopEvent);
             skipOnce = true;
             runOnce = true;
-            tsl::goBack();
+            lastSelectedItem = "Battery/Charger";
+            lastMode = "";
+            tsl::swapTo<OtherMenu>();
             return true;
         }
         return false;

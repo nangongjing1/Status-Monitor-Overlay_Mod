@@ -1,3 +1,5 @@
+class MainMenu;
+
 class FullOverlay : public tsl::Gui {
 private:
     char DeltaCPU_c[12] = "";
@@ -48,10 +50,14 @@ public:
         tsl::hlp::requestForeground(false);
         TeslaFPS = settings.refreshRate;
         systemtickfrequency_impl /= settings.refreshRate;
-        idletick0 = systemtickfrequency_impl;
-        idletick1 = systemtickfrequency_impl;
-        idletick2 = systemtickfrequency_impl;
-        idletick3 = systemtickfrequency_impl;
+        //idletick0 = systemtickfrequency_impl;
+        //idletick1 = systemtickfrequency_impl;
+        //idletick2 = systemtickfrequency_impl;
+        //idletick3 = systemtickfrequency_impl;
+        idletick0.store(systemtickfrequency_impl, std::memory_order_relaxed);
+        idletick1.store(systemtickfrequency_impl, std::memory_order_relaxed);
+        idletick2.store(systemtickfrequency_impl, std::memory_order_relaxed);
+        idletick3.store(systemtickfrequency_impl, std::memory_order_relaxed);
         if (settings.setPosRight) {
             const auto [horizontalUnderscanPixels, verticalUnderscanPixels] = tsl::gfx::getUnderscanPixels();
             tsl::gfx::Renderer::get().setLayerPos(1280-32 - horizontalUnderscanPixels, 0);
@@ -66,6 +72,9 @@ public:
         deactivateOriginalFooter = true;
         formatButtonCombination(formattedKeyCombo);
         message = "按 " + formattedKeyCombo + " 退出";
+
+        //realVoltsPolling = settings.realVolts;
+        realVoltsPolling = false;
         StartThreads();
     }
     ~FullOverlay() {
@@ -101,10 +110,10 @@ public:
                 }
                 renderer->drawString("CPU 使用率", false, COMMON_MARGIN, 120, 20, renderer->a(0xFFFF));
                 if (settings.showTargetFreqs) {
-                    renderer->drawString(CPU_Hz_c, false, COMMON_MARGIN, height_offset, 15, renderer->a(0xFFFF));
+                    renderer->drawString(CPU_Hz_c, false, COMMON_MARGIN, height_offset, 15, (0xFFFF));
                 }
                 if (realCPU_Hz && settings.showRealFreqs) {
-                    renderer->drawString(RealCPU_Hz_c, false, COMMON_MARGIN, height_offset - 15, 15, renderer->a(0xFFFF));
+                    renderer->drawString(RealCPU_Hz_c, false, COMMON_MARGIN, height_offset - 15, 15, (0xFFFF));
                     if (settings.showDeltas && settings.showTargetFreqs) {
                         renderer->drawString(DeltaCPU_c, false, COMMON_MARGIN + 180, height_offset - 7, 15, renderer->a(0xFFFF));
                     }
@@ -115,7 +124,7 @@ public:
                 else if (realCPU_Hz && settings.showDeltas && (settings.showRealFreqs || settings.showTargetFreqs)) {
                     renderer->drawString(DeltaCPU_c, false, COMMON_MARGIN + 180, height_offset, 15, renderer->a(0xFFFF));
                 }
-                renderer->drawString(CPU_compressed_c, false, COMMON_MARGIN, height_offset + 30, 15, renderer->a(0xFFFF));
+                renderer->drawString(CPU_compressed_c, false, COMMON_MARGIN, height_offset + 30, 15, (0xFFFF));
             }
             
             ///GPU
@@ -129,11 +138,11 @@ public:
                 renderer->drawString("GPU 使用率", false, COMMON_MARGIN, 285, 20, renderer->a(0xFFFF));
                 if (R_SUCCEEDED(clkrstCheck) || R_SUCCEEDED(pcvCheck)) {
                     if (settings.showTargetFreqs) { 
-                        renderer->drawString(GPU_Hz_c, false, COMMON_MARGIN, height_offset, 15, renderer->a(0xFFFF));
+                        renderer->drawString(GPU_Hz_c, false, COMMON_MARGIN, height_offset, 15, (0xFFFF));
 
                     }
                     if (realCPU_Hz && settings.showRealFreqs) {
-                        renderer->drawString(RealGPU_Hz_c, false, COMMON_MARGIN, height_offset - 15, 15, renderer->a(0xFFFF));
+                        renderer->drawString(RealGPU_Hz_c, false, COMMON_MARGIN, height_offset - 15, 15, (0xFFFF));
                         if (settings.showDeltas && settings.showTargetFreqs) {
                             renderer->drawString(DeltaGPU_c, false, COMMON_MARGIN + 180, height_offset - 7, 15, renderer->a(0xFFFF));
                         }
@@ -146,7 +155,7 @@ public:
                     }
                 }
                 if (R_SUCCEEDED(nvCheck)) {
-                    renderer->drawString(GPU_Load_c, false, COMMON_MARGIN, height_offset + 15, 15, renderer->a(0xFFFF));
+                    renderer->drawString(GPU_Load_c, false, COMMON_MARGIN, height_offset + 15, 15, (0xFFFF));
                 }
                 
             }
@@ -162,10 +171,10 @@ public:
                 renderer->drawString("内存 使用率", false, COMMON_MARGIN, 375, 20, renderer->a(0xFFFF));
                 if (R_SUCCEEDED(clkrstCheck) || R_SUCCEEDED(pcvCheck)) {
                     if (settings.showTargetFreqs) {
-                        renderer->drawString(RAM_Hz_c, false, COMMON_MARGIN, height_offset, 15, renderer->a(0xFFFF));
+                        renderer->drawString(RAM_Hz_c, false, COMMON_MARGIN, height_offset, 15, (0xFFFF));
                     }
                     if (realRAM_Hz && settings.showRealFreqs) {
-                        renderer->drawString(RealRAM_Hz_c, false, COMMON_MARGIN, height_offset - 15, 15, renderer->a(0xFFFF));
+                        renderer->drawString(RealRAM_Hz_c, false, COMMON_MARGIN, height_offset - 15, 15, (0xFFFF));
                         if (settings.showDeltas && settings.showTargetFreqs) {
                             renderer->drawString(DeltaRAM_c, false, COMMON_MARGIN + 180, height_offset - 7, 15, renderer->a(0xFFFF));
                         }
@@ -177,7 +186,7 @@ public:
                         renderer->drawString(DeltaRAM_c, false, COMMON_MARGIN + 180, height_offset, 15, renderer->a(0xFFFF));
                     }
                     if (R_SUCCEEDED(sysclkCheck)) {
-                        renderer->drawString(RAM_load_c, false, COMMON_MARGIN, height_offset+15, 15, renderer->a(0xFFFF));
+                        renderer->drawString(RAM_load_c, false, COMMON_MARGIN, height_offset+15, 15, (0xFFFF));
                     }
                 }
                 if (R_SUCCEEDED(Hinted)) {
@@ -198,7 +207,7 @@ public:
                     renderer->drawString("Soc \nPcb \nSkin", false, COMMON_MARGIN + textWidth1, 590, 15, renderer->a(0xFFFF));
                     renderer->drawString(SoCPCB_temperature_c, false, COMMON_MARGIN + textWidth1 + textWidth2, 590, 15, renderer->a(0xFFFF));
                 }
-                if (R_SUCCEEDED(pwmCheck)) renderer->drawString(Rotation_SpeedLevel_c, false, COMMON_MARGIN, 635, 15, renderer->a(0xFFFF));
+                if (R_SUCCEEDED(pwmCheck)) renderer->drawString(Rotation_SpeedLevel_c, false, COMMON_MARGIN, 635, 15, (0xFFFF));
             }
             
             ///FPS
@@ -209,15 +218,15 @@ public:
                 }
                 uint32_t height = 210+12;
                 if (settings.showFPS == true) {
-                    renderer->drawString(FPS_var_compressed_c, false, COMMON_MARGIN + width_offset, height, 15, renderer->a(0xFFFF));
+                    renderer->drawString(FPS_var_compressed_c, false, COMMON_MARGIN + width_offset, height, 15, (0xFFFF));
                     height += 15;
                 }
                 if ((settings.showRES == true) && NxFps && SharedMemoryUsed && (NxFps -> API >= 1)) {
-                    renderer->drawString(Resolutions_c, false, COMMON_MARGIN + width_offset, height, 15, renderer->a(0xFFFF));
+                    renderer->drawString(Resolutions_c, false, COMMON_MARGIN + width_offset, height, 15, (0xFFFF));
                     height += 15;
                 }
                 if (settings.showRDSD == true) {
-                    renderer->drawString(readSpeed_c, false, COMMON_MARGIN + width_offset, height, 15, renderer->a(0xFFFF));
+                    renderer->drawString(readSpeed_c, false, COMMON_MARGIN + width_offset, height, 15, (0xFFFF));
                 }
             }
             
@@ -231,14 +240,55 @@ public:
         return rootFrame;
     }
 
+    // Put this in the class (FullOverlay) or in the header outside the class:
+    //static float rand_float_0_100() {
+    //    int int_part = rand() % 101;
+    //    int frac_part = rand() % 1000000;
+    //    float f = int_part + frac_part / 1000000.0f;
+    //    return std::clamp(f, 0.0f, 100.0f);
+    //}
+
     virtual void update() override {
         //Make stuff ready to print
         ///CPU
-        snprintf(CPU_compressed_c, sizeof(CPU_compressed_c), "核心 #0: %.2f%%\n核心 #1: %.2f%%\n核心 #2: %.2f%%\n核心 #3: %.2f%%",
-            std::clamp(0.f, 100.f, (float)(1.d - ((double)idletick0 / systemtickfrequency_impl)) * 100),
-            std::clamp(0.f, 100.f, (float)(1.d - ((double)idletick1 / systemtickfrequency_impl)) * 100),
-            std::clamp(0.f, 100.f, (float)(1.d - ((double)idletick2 / systemtickfrequency_impl)) * 100),
-            std::clamp(0.f, 100.f, (float)(1.d - ((double)idletick3 / systemtickfrequency_impl)) * 100));
+        if (systemtickfrequency_impl > 0) {
+           const uint64_t idle0_val = std::min(idletick0.load(std::memory_order_acquire), systemtickfrequency_impl);
+           const uint64_t idle1_val = std::min(idletick1.load(std::memory_order_acquire), systemtickfrequency_impl);
+           const uint64_t idle2_val = std::min(idletick2.load(std::memory_order_acquire), systemtickfrequency_impl);
+           const uint64_t idle3_val = std::min(idletick3.load(std::memory_order_acquire), systemtickfrequency_impl);
+           
+           const float usage0 = std::clamp(100.0f * (1.0f - float(idle0_val) / systemtickfrequency_impl), 0.0f, 100.0f);
+           const float usage1 = std::clamp(100.0f * (1.0f - float(idle1_val) / systemtickfrequency_impl), 0.0f, 100.0f);
+           const float usage2 = std::clamp(100.0f * (1.0f - float(idle2_val) / systemtickfrequency_impl), 0.0f, 100.0f);
+           const float usage3 = std::clamp(100.0f * (1.0f - float(idle3_val) / systemtickfrequency_impl), 0.0f, 100.0f);
+           
+           // Format
+           snprintf(
+               CPU_compressed_c,
+               sizeof(CPU_compressed_c),
+               "核心 #0: %.2f%%\n核心 #1: %.2f%%\n核心 #2: %.2f%%\n核心 #3: %.2f%%",
+               usage0, usage1, usage2, usage3
+           );
+
+            // Skip all the atomic loads and calculations
+            // Just render a static string:
+            //strcpy(CPU_compressed_c, "Core #0: 50.00%\nCore #1: 50.00%\nCore #2: 50.00%\nCore #3: 50.00%");
+        }
+
+
+        //if (systemtickfrequency_impl > 0) {
+        //    float usage0 = rand_float_0_100();
+        //    float usage1 = rand_float_0_100();
+        //    float usage2 = rand_float_0_100();
+        //    float usage3 = rand_float_0_100();
+        //
+        //    snprintf(
+        //        CPU_compressed_c,
+        //        sizeof(CPU_compressed_c),
+        //        "Core #0: %.6f%%\nCore #1: %.6f%%\nCore #2: %.6f%%\nCore #3: %.6f%%",
+        //        usage0, usage1, usage2, usage3
+        //    );
+        //}
 
         mutexLock(&mutex_Misc);
         snprintf(CPU_Hz_c, sizeof(CPU_Hz_c), "目标频率: %u.%u MHz", CPU_Hz / 1000000, (CPU_Hz / 100000) % 10);
@@ -416,7 +466,9 @@ public:
             skipOnce = true;
             runOnce = true;
             TeslaFPS = 60;
-            tsl::goBack();
+            lastSelectedItem = "Full";
+            lastMode = "";
+            tsl::swapTo<MainMenu>();
             return true;
         }
         return false;
