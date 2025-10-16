@@ -126,7 +126,7 @@ public:
         //    list->addItem(Res);
         //}
 
-        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("Status Monitor", "Modes");
+        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", "Modes");
         if (!lastSelectedItem.empty())
             list->jumpToItem(lastSelectedItem);
             
