@@ -38,7 +38,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 #   NACP building is skipped as well.
 #---------------------------------------------------------------------------------
 APP_TITLE	:=	Status Monitor
-APP_VERSION	:=	1.2.2+r2
+APP_VERSION	:=	1.2.3+
 TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
 SOURCES		:=	source
@@ -55,7 +55,7 @@ include ${TOPDIR}/lib/libultrahand/ultrahand.mk
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv8-a+simd+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
-CFLAGS	:=	-g -Wall -Wno-address-of-packed-member -Os -ffunction-sections -ffast-math -flto -fomit-frame-pointer\
+CFLAGS	:=	-g -Wall -Wno-address-of-packed-member -O2 -ffunction-sections -ffast-math -flto -fomit-frame-pointer\
 			$(ARCH) $(DEFINES)
 
 # For compiling Ultrahand Overlay only
@@ -187,12 +187,23 @@ all: $(BUILD)
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+	@rm -rf out/
+	@mkdir -p out/switch/.overlays/
+	@cp -a $(CURDIR)/config out/
+	@cp $(CURDIR)/$(TARGET).ovl out/switch/.overlays/$(TARGET).ovl
 
 #---------------------------------------------------------------------------------
 clean:
+	@echo "Cleanning ... $(TARGET)"
 	@rm -fr $(BUILD) $(TARGET).ovl $(TARGET).nro $(TARGET).nacp $(TARGET).elf
+	@rm -rf out/
+	@rm -f $(TARGET).zip
 
-
+#---------------------------------------------------------------------------------
+dist: all
+	@echo making dist ...
+	@rm -f $(TARGET).zip
+	@cd out; zip -r ../$(TARGET).zip ./*; cd ../
 #---------------------------------------------------------------------------------
 else
 .PHONY:	all
