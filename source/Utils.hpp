@@ -59,8 +59,8 @@ constexpr const char* configIniPath = "sdmc:/config/status-monitor/config.ini";
 constexpr const char* ultrahandConfigIniPath = "sdmc:/config/ultrahand/config.ini";
 constexpr const char* teslaConfigIniPath = "sdmc:/config/tesla/config.ini";
 
-std::string filename = "";
-std::string filepath = "";
+std::string filename;
+std::string filepath;
 std::string keyCombo = "ZL+ZR+DDOWN"; // default Ultrahand Menu combo
 
 //Misc2
@@ -480,7 +480,7 @@ void StartBatteryThread() {
     //    leventClear(&threadexit);
     //}
     leventClear(&threadexit);
-    threadCreate(&t7, BatteryChecker, NULL, NULL, 0x4000, 0x3F, 3);
+    threadCreate(&t7, BatteryChecker, NULL, NULL, 0x2000, 0x3F, 3);
     threadStart(&t7);
 }
 
@@ -1312,6 +1312,8 @@ ALWAYS_INLINE bool isKeyComboPressed(uint64_t keysHeld, uint64_t keysDown) {
         
         if (totalComboActive == tsl::cfg::launchCombo) {
             fixHiding = true; // for fixing hiding when returning
+            //triggerRumbleDoubleClick.store(true, std::memory_order_release);
+            //triggerExitSound.store(true, std::memory_order_release);
             return true;
         }
     }
@@ -1461,6 +1463,10 @@ struct FullSettings {
     bool showRES;
     bool showRDSD;
     bool disableScreenshots;
+    uint16_t separatorColor;
+    uint16_t catColor1;
+    uint16_t catColor2;
+    uint16_t textColor;
 };
 
 struct MiniSettings {
@@ -1488,6 +1494,7 @@ struct MiniSettings {
     uint16_t textColor;
     std::string show;
     bool showRAMLoad;
+    bool showRAMLoadCPUGPU;
     bool disableScreenshots;
     bool sleepExit;
     //int setPos;
@@ -1529,15 +1536,20 @@ struct FpsCounterSettings {
     size_t handheldFontSize;
     size_t dockedFontSize;
     uint16_t backgroundColor;
+    uint16_t focusBackgroundColor;
     uint16_t textColor;
-    int setPos;
+    //int setPos;
     bool disableScreenshots;
+    int frameOffsetX;
+    int frameOffsetY;
+    size_t framePadding;
 };
 
 struct FpsGraphSettings {
     bool showInfo;
     uint8_t refreshRate;
     uint16_t backgroundColor;
+    uint16_t focusBackgroundColor;
     uint16_t fpsColor;
     uint16_t mainLineColor;
     uint16_t roundedLineColor;
@@ -1546,17 +1558,27 @@ struct FpsGraphSettings {
     uint16_t borderColor;
     uint16_t maxFPSTextColor;
     uint16_t minFPSTextColor;
-    int setPos;
+    uint16_t textColor;
+    //int setPos;
     bool disableScreenshots;
+    int frameOffsetX;
+    int frameOffsetY;
+    size_t framePadding;
 };
 
 struct ResolutionSettings {
     uint8_t refreshRate;
     uint16_t backgroundColor;
+    uint16_t focusBackgroundColor;
     uint16_t catColor;
+    //uint16_t catColor2;
     uint16_t textColor;
-    int setPos;
+    //int setPos;
     bool disableScreenshots;
+
+    int frameOffsetX;
+    int frameOffsetY;
+    size_t framePadding;
 };
 
 ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
@@ -1585,6 +1607,7 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
     settings->show = "DTC+BAT+CPU+GPU+RAM+TMP+FPS+RES";
     settings->showRAMLoad = true;
+    settings->showRAMLoadCPUGPU = false;
     settings->refreshRate = 1;
     settings->disableScreenshots = false;
     settings->sleepExit = false;
@@ -1677,7 +1700,6 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         if (convertStrToRGBA4444(it->second, &temp))
             settings->separatorColor = temp;
     }
-    
 
     it = section.find("cat_color");
     if (it != section.end()) {
@@ -1777,6 +1799,14 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         key = it->second;
         convertToUpper(key);
         settings->showRAMLoad = (key != "FALSE");
+    }
+
+    // Process CPU/GPU RAM load flag
+    it = section.find("show_RAM_load_CPU_GPU");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showRAMLoadCPUGPU = (key != "FALSE");
     }
 
     // Process disable screenshots
@@ -2080,10 +2110,15 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     settings->handheldFontSize = 40;
     settings->dockedFontSize = 40;
     convertStrToRGBA4444("#0009", &(settings->backgroundColor));
+    convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
-    settings->setPos = 0;
+    //settings->setPos = 0;
     settings->refreshRate = 30;
     settings->disableScreenshots = false;
+
+    settings->frameOffsetX = 10;
+    settings->frameOffsetY = 10;
+    settings->framePadding = 10;
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -2131,6 +2166,14 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
         if (convertStrToRGBA4444(it->second, &temp))
             settings->backgroundColor = temp;
     }
+
+    it = section.find("focus_background_color");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->focusBackgroundColor = temp;
+    }
+
     
     it = section.find("text_color");
     if (it != section.end()) {
@@ -2140,27 +2183,27 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     }
     
     // Process alignment settings
-    it = section.find("layer_width_align");
-    if (it != section.end()) {
-        key = it->second;
-        convertToUpper(key);
-        if (key == "CENTER") {
-            settings->setPos = 1;
-        } else if (key == "RIGHT") {
-            settings->setPos = 2;
-        }
-    }
+    //it = section.find("layer_width_align");
+    //if (it != section.end()) {
+    //    key = it->second;
+    //    convertToUpper(key);
+    //    if (key == "CENTER") {
+    //        settings->setPos = 1;
+    //    } else if (key == "RIGHT") {
+    //        settings->setPos = 2;
+    //    }
+    //}
     
-    it = section.find("layer_height_align");
-    if (it != section.end()) {
-        key = it->second;
-        convertToUpper(key);
-        if (key == "CENTER") {
-            settings->setPos += 3;
-        } else if (key == "BOTTOM") {
-            settings->setPos += 6;
-        }
-    }
+    //it = section.find("layer_height_align");
+    //if (it != section.end()) {
+    //    key = it->second;
+    //    convertToUpper(key);
+    //    if (key == "CENTER") {
+    //        settings->setPos += 3;
+    //    } else if (key == "BOTTOM") {
+    //        settings->setPos += 6;
+    //    }
+    //}
 
     // Process disable screenshots
     it = section.find("disable_screenshots");
@@ -2169,14 +2212,30 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
         convertToUpper(key);
         settings->disableScreenshots = (key != "FALSE");
     }
+
+    it = section.find("frame_offset_x");
+    if (it != section.end()) {
+        settings->frameOffsetX = atol(it->second.c_str());
+    }
+
+    it = section.find("frame_offset_y");
+    if (it != section.end()) {
+        settings->frameOffsetY = atol(it->second.c_str());
+    }
+
+    it = section.find("frame_padding");
+    if (it != section.end()) {
+        settings->framePadding = atol(it->second.c_str());
+    }
 }
 
 ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     // Initialize defaults
     settings->showInfo = false;
-    settings->setPos = 0;
+    //settings->setPos = 0;
     convertStrToRGBA4444("#0009", &(settings->backgroundColor));
-    convertStrToRGBA4444("#4444", &(settings->fpsColor));
+    convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
+    convertStrToRGBA4444("#888C", &(settings->fpsColor));
     convertStrToRGBA4444("#F00F", &(settings->borderColor));
     convertStrToRGBA4444("#8888", &(settings->dashedLineColor));
     convertStrToRGBA4444("#FFFF", &(settings->maxFPSTextColor));
@@ -2184,8 +2243,16 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     convertStrToRGBA4444("#FFFF", &(settings->mainLineColor));
     convertStrToRGBA4444("#F0FF", &(settings->roundedLineColor));
     convertStrToRGBA4444("#0C0F", &(settings->perfectLineColor));
+
+    convertStrToRGBA4444("#FFFF", &(settings->textColor));
+
     settings->refreshRate = 30;
     settings->disableScreenshots = false;
+
+    settings->frameOffsetX = 10;
+    settings->frameOffsetY = 10;
+    settings->framePadding = 10;
+
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -2212,57 +2279,30 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     const auto& section = sectionIt->second;
     
     // Process alignment settings
-    auto it = section.find("layer_width_align");
-    if (it != section.end()) {
-        key = it->second;
-        convertToUpper(key);
-        if (key == "CENTER") {
-            settings->setPos = 1;
-        } else if (key == "RIGHT") {
-            settings->setPos = 2;
-        }
-    }
-    
-    it = section.find("layer_height_align");
-    if (it != section.end()) {
-        key = it->second;
-        convertToUpper(key);
-        if (key == "CENTER") {
-            settings->setPos += 3;
-        } else if (key == "BOTTOM") {
-            settings->setPos += 6;
-        }
-    }
-    
-    // Process colors - using a struct for cleaner code
-    struct ColorMapping {
-        const char* key;
-        uint16_t* target;
-    };
-    
-    const ColorMapping colorMappings[] = {
-        {"min_fps_text_color", &settings->minFPSTextColor},
-        {"max_fps_text_color", &settings->maxFPSTextColor},
-        {"background_color", &settings->backgroundColor},
-        {"fps_counter_color", &settings->fpsColor},
-        {"border_color", &settings->borderColor},
-        {"dashed_line_color", &settings->dashedLineColor},
-        {"main_line_color", &settings->mainLineColor},
-        {"rounded_line_color", &settings->roundedLineColor},
-        {"perfect_line_color", &settings->perfectLineColor}
-    };
-    
-    for (const auto& mapping : colorMappings) {
-        it = section.find(mapping.key);
-        if (it != section.end()) {
-            temp = 0;
-            if (convertStrToRGBA4444(it->second, &temp))
-                *(mapping.target) = temp;
-        }
-    }
+    //auto it = section.find("layer_width_align");
+    //if (it != section.end()) {
+    //    key = it->second;
+    //    convertToUpper(key);
+    //    if (key == "CENTER") {
+    //        settings->setPos = 1;
+    //    } else if (key == "RIGHT") {
+    //        settings->setPos = 2;
+    //    }
+    //}
+    //
+    //it = section.find("layer_height_align");
+    //if (it != section.end()) {
+    //    key = it->second;
+    //    convertToUpper(key);
+    //    if (key == "CENTER") {
+    //        settings->setPos += 3;
+    //    } else if (key == "BOTTOM") {
+    //        settings->setPos += 6;
+    //    }
+    //}
     
     // Process show_info boolean
-    it = section.find("show_info");
+    auto it = section.find("show_info");
     if (it != section.end()) {
         key = it->second;
         convertToUpper(key);
@@ -2275,6 +2315,51 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
         key = it->second;
         convertToUpper(key);
         settings->disableScreenshots = (key != "FALSE");
+    }
+
+    it = section.find("frame_offset_x");
+    if (it != section.end()) {
+        settings->frameOffsetX = atol(it->second.c_str());
+    }
+
+    it = section.find("frame_offset_y");
+    if (it != section.end()) {
+        settings->frameOffsetY = atol(it->second.c_str());
+    }
+
+    it = section.find("frame_padding");
+    if (it != section.end()) {
+        settings->framePadding = atol(it->second.c_str());
+    }
+
+    
+    // Process colors - using a struct for cleaner code
+    struct ColorMapping {
+        const char* key;
+        uint16_t* target;
+    };
+    
+    const ColorMapping colorMappings[] = {
+        {"min_fps_text_color", &settings->minFPSTextColor},
+        {"max_fps_text_color", &settings->maxFPSTextColor},
+        {"background_color", &settings->backgroundColor},
+        {"focus_background_color", &settings->focusBackgroundColor},
+        {"fps_counter_color", &settings->fpsColor},
+        {"border_color", &settings->borderColor},
+        {"dashed_line_color", &settings->dashedLineColor},
+        {"main_line_color", &settings->mainLineColor},
+        {"rounded_line_color", &settings->roundedLineColor},
+        {"perfect_line_color", &settings->perfectLineColor},
+        {"text_color", &settings->textColor}
+    };
+    
+    for (const auto& mapping : colorMappings) {
+        it = section.find(mapping.key);
+        if (it != section.end()) {
+            temp = 0;
+            if (convertStrToRGBA4444(it->second, &temp))
+                *(mapping.target) = temp;
+        }
     }
 }
 
@@ -2289,6 +2374,10 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
     settings->showRES = true;
     settings->showRDSD = true;
     settings->disableScreenshots = false;
+    convertStrToRGBA4444("#2DFF", &(settings->separatorColor));
+    convertStrToRGBA4444("#8FFF", &(settings->catColor1));
+    convertStrToRGBA4444("#8CFF", &(settings->catColor2));
+    convertStrToRGBA4444("#FFFF", &(settings->textColor));
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -2310,6 +2399,7 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
     if (sectionIt == parsedData.end()) return;
     
     std::string key;
+    uint16_t temp;
     
     const auto& section = sectionIt->second;
 
@@ -2377,16 +2467,51 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
         convertToUpper(key);
         settings->disableScreenshots = (key != "FALSE");
     }
+
+    it = section.find("separator_color");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->separatorColor = temp;
+    }
+
+    it = section.find("cat_color_1");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->catColor1 = temp;
+    }
+    
+    it = section.find("cat_color_2");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->catColor2 = temp;
+    }
+
+    it = section.find("text_color");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->textColor = temp;
+    }
 }
 
 ALWAYS_INLINE void GetConfigSettings(ResolutionSettings* settings) {
     // Initialize defaults
     convertStrToRGBA4444("#0009", &(settings->backgroundColor));
-    convertStrToRGBA4444("#FFFF", &(settings->catColor));
+    convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
+    convertStrToRGBA4444("#8FFF", &(settings->catColor));
+    //convertStrToRGBA4444("#8CFF", &(settings->catColor2));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
     settings->refreshRate = 10;
-    settings->setPos = 0;
+    //ettings->setPos = 0;
     settings->disableScreenshots = false;
+
+    settings->frameOffsetX = 10;
+    settings->frameOffsetY = 10;
+    settings->framePadding = 10;
+
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -2416,51 +2541,83 @@ ALWAYS_INLINE void GetConfigSettings(ResolutionSettings* settings) {
     if (it != section.end()) {
         settings->refreshRate = std::clamp(atol(it->second.c_str()), 1L, 60L);
     }
-    
+
+    uint16_t temp;
+
     // Process colors
     it = section.find("background_color");
     if (it != section.end()) {
-        uint16_t temp = 0;
+        temp = 0;
         if (convertStrToRGBA4444(it->second, &temp))
             settings->backgroundColor = temp;
+    }
+
+    it = section.find("focus_background_color");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->focusBackgroundColor = temp;
     }
     
     it = section.find("cat_color");
     if (it != section.end()) {
-        uint16_t temp = 0;
+        temp = 0;
         if (convertStrToRGBA4444(it->second, &temp))
             settings->catColor = temp;
     }
+
+    //it = section.find("cat_color_2");
+    //if (it != section.end()) {
+    //    temp = 0;
+    //    if (convertStrToRGBA4444(it->second, &temp))
+    //        settings->catColor2 = temp;
+    //}
+
     
     it = section.find("text_color");
     if (it != section.end()) {
-        uint16_t temp = 0;
+        temp = 0;
         if (convertStrToRGBA4444(it->second, &temp))
             settings->textColor = temp;
     }
+
+    it = section.find("frame_offset_x");
+    if (it != section.end()) {
+        settings->frameOffsetX = atol(it->second.c_str());
+    }
+
+    it = section.find("frame_offset_y");
+    if (it != section.end()) {
+        settings->frameOffsetY = atol(it->second.c_str());
+    }
+
+    it = section.find("frame_padding");
+    if (it != section.end()) {
+        settings->framePadding = atol(it->second.c_str());
+    }
     
     // Process alignment settings
-    it = section.find("layer_width_align");
-    if (it != section.end()) {
-        key = it->second;
-        convertToUpper(key);
-        if (key == "CENTER") {
-            settings->setPos = 1;
-        } else if (key == "RIGHT") {
-            settings->setPos = 2;
-        }
-    }
-    
-    it = section.find("layer_height_align");
-    if (it != section.end()) {
-        key = it->second;
-        convertToUpper(key);
-        if (key == "CENTER") {
-            settings->setPos += 3;
-        } else if (key == "BOTTOM") {
-            settings->setPos += 6;
-        }
-    }
+   //it = section.find("layer_width_align");
+   //if (it != section.end()) {
+   //    key = it->second;
+   //    convertToUpper(key);
+   //    if (key == "CENTER") {
+   //        settings->setPos = 1;
+   //    } else if (key == "RIGHT") {
+   //        settings->setPos = 2;
+   //    }
+   //}
+   //
+   //it = section.find("layer_height_align");
+   //if (it != section.end()) {
+   //    key = it->second;
+   //    convertToUpper(key);
+   //    if (key == "CENTER") {
+   //        settings->setPos += 3;
+   //    } else if (key == "BOTTOM") {
+   //        settings->setPos += 6;
+   //    }
+   //}
 
     // Process disable screenshots
     it = section.find("disable_screenshots");
