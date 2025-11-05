@@ -276,8 +276,8 @@ public:
                 }
                 uint32_t height = 210+12;
                 if (settings.showFPS == true) {
-                    static auto pfpsWidth = renderer->getTextDimensions("PFPS  ", false, 15).first;
-                    static auto fpsWidth = renderer->getTextDimensions("FPS  ", false, 15).first;
+                    static auto pfpsWidth = renderer->getTextDimensions("推送帧率: ", false, 15).first;
+                    static auto fpsWidth = renderer->getTextDimensions("帧率: ", false, 15).first;
                     
                     renderer->drawString("推送帧率: ", false, COMMON_MARGIN + width_offset, height, 15, (settings.catColor2));
                     renderer->drawString(PFPS_value_c, false, COMMON_MARGIN + width_offset + pfpsWidth, height, 15, (settings.textColor));
@@ -306,7 +306,7 @@ public:
             //renderer->drawStringWithColoredSections(message, false, KEY_SYMBOLS, 30, 693, 23,  a(tsl::bottomTextColor), a(tsl::buttonColor));
             
 
-            static const auto pressWidth = renderer->getTextDimensions("Press ", false, 23).first;
+            static const auto pressWidth = renderer->getTextDimensions("按 ", false, 23).first;
             static const auto keyComboWidth = renderer->getTextDimensions(formattedKeyCombo.c_str(), false, 23).first;
             
             static constexpr u16 baseX = 30;
@@ -314,13 +314,13 @@ public:
             static constexpr u8 fontSize = 23;
 
             // Draw "Press "
-            renderer->drawString("按", false, baseX, baseY, fontSize, (tsl::bottomTextColor));
+            renderer->drawString("按 ", false, baseX, baseY, fontSize, (tsl::bottomTextColor));
             
             // Draw formatted key combo with colored sections
             renderer->drawStringWithColoredSections(formattedKeyCombo, false, KEY_SYMBOLS, baseX + pressWidth, baseY, fontSize, (tsl::bottomTextColor), (tsl::buttonColor));
             
             // Draw " to Exit"
-            renderer->drawString("退出", false, baseX + pressWidth + keyComboWidth, baseY, fontSize, (tsl::bottomTextColor));
+            renderer->drawString(" 退出", false, baseX + pressWidth + keyComboWidth, baseY, fontSize, (tsl::bottomTextColor));
         });
         
         auto rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", APP_VERSION);
