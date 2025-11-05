@@ -25,25 +25,25 @@ private:
 
     const char* getChargerTypeString(BatteryChargeInfoFieldsChargerType chargerType) {
         switch(chargerType) {
-            case None:
+            case 0:
                 return "无";
-            case PD:
+            case 1:
                 return "PD充电器";
-            case TypeC_1500mA:
+            case 2:
                 return "Type-C 1.5A";
-            case TypeC_3000mA:
+            case 3:
                 return "Type-C 3A";
-            case DCP:
+            case 4:
                 return "专用充电端口(DCP)";
-            case CDP:
+            case 5:
                 return "带数据传输充电端口(CDP)";
-            case SDP:
+            case 6:
                 return "标准数据端口(SDP)";
-            case Apple_500mA:
+            case 7:
                 return "Apple 0.5A";
-            case Apple_1000mA:
+            case 8:
                 return "Apple 1A";
-            case Apple_2000mA:
+            case 9:
                 return "Apple 2A";
             default:
                 return "未知";
@@ -84,7 +84,7 @@ public:
             u16 currentY = START_Y;
             
             // Actual Capacity
-            renderer->drawString("当前容量", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
+            renderer->drawString("实际容量", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
             renderer->drawString(actualCapacity_c, false, VALUE_X, currentY, FONT_SIZE, VALUE_COLOR);
             currentY += LINE_HEIGHT;
             
@@ -99,7 +99,7 @@ public:
             currentY += LINE_HEIGHT;
             
             // Raw Charge
-            renderer->drawString("Raw Charge", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
+            renderer->drawString("剩余电量", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
             renderer->drawString(rawCharge_c, false, VALUE_X, currentY, FONT_SIZE, VALUE_COLOR);
             currentY += LINE_HEIGHT;
             
@@ -212,7 +212,7 @@ public:
             snprintf(vbusCurrentLimit_c, sizeof(vbusCurrentLimit_c), "%d mA", _batteryChargeInfoFields.VBUSCurrentLimit);
             snprintf(chargeVoltageLimit_c, sizeof(chargeVoltageLimit_c), "%d mV", _batteryChargeInfoFields.ChargeVoltageLimit);
             snprintf(chargeCurrentLimit_c, sizeof(chargeCurrentLimit_c), "%d mA", _batteryChargeInfoFields.ChargeCurrentLimit);
-            snprintf(chargerType_c, sizeof(chargerType_c), "%u", ChargerConnected);
+            snprintf(chargerType_c, sizeof(chargerType_c), "%s", getChargerTypeString(ChargerConnected));
             snprintf(chargerMaxVoltage_c, sizeof(chargerMaxVoltage_c), "%u mV", ChargerVoltageLimit);
             snprintf(chargerMaxCurrent_c, sizeof(chargerMaxCurrent_c), "%u mA", ChargerCurrentLimit);
         }

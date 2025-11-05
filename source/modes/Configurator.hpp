@@ -1423,7 +1423,7 @@ public:
                 }
             }
         } else if (isFullMode) {
-            auto* catColor1 = new tsl::elm::ListItem("Category Color 1");
+            auto* catColor1 = new tsl::elm::ListItem("类别颜色 标题");
             // Display color name for category colors
             catColor1->setValue(getColorName(getCurrentColor("cat_color_1", "#2DFF")));
             catColor1->setClickListener([this](uint64_t keys) {
@@ -1435,7 +1435,7 @@ public:
             });
             list->addItem(catColor1);
 
-            auto* catColor2 = new tsl::elm::ListItem("Category Color 2");
+            auto* catColor2 = new tsl::elm::ListItem("类别颜色 文本");
             // Display color name for category colors
             catColor2->setValue(getColorName(getCurrentColor("cat_color_2", "#2DFF")));
             catColor2->setClickListener([this](uint64_t keys) {
@@ -1447,7 +1447,7 @@ public:
             });
             list->addItem(catColor2);
     
-            auto* sepColor = new tsl::elm::ListItem("Separator Color");
+            auto* sepColor = new tsl::elm::ListItem("分隔符颜色");
             // Display color name for separator colors
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#2DFF")));
             sepColor->setClickListener([this](uint64_t keys) {

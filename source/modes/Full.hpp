@@ -125,12 +125,12 @@ public:
                 renderer->drawString("CPU 使用率", false, COMMON_MARGIN, 120, 20, renderer->a(settings.catColor1));
                 if (settings.showTargetFreqs) {
                     //static auto targetFreqWidth = renderer->getTextDimensions("Target Frequency: ", false, 15).first;
-                    renderer->drawString("Target Frequency", false, COMMON_MARGIN, height_offset, 15, (settings.catColor2));
+                    renderer->drawString("目标频率", false, COMMON_MARGIN, height_offset, 15, (settings.catColor2));
                     renderer->drawString(CPU_Hz_c, false, COMMON_MARGIN + valueOffset, height_offset, 15, (settings.textColor));
                 }
                 if (realCPU_Hz && settings.showRealFreqs) {
                     //static auto realFreqWidth = renderer->getTextDimensions("Real Frequency: ", false, 15).first;
-                    renderer->drawString("Real Frequency", false, COMMON_MARGIN, height_offset - 15, 15, (settings.catColor2));
+                    renderer->drawString("实际频率", false, COMMON_MARGIN, height_offset - 15, 15, (settings.catColor2));
                     renderer->drawString(RealCPU_Hz_c, false, COMMON_MARGIN + valueOffset, height_offset - 15, 15, (settings.textColor));
                     if (settings.showDeltas && settings.showTargetFreqs) {
                         renderer->drawString(DeltaCPU_c, false, COMMON_MARGIN +  deltaOffset, height_offset - 7, 15, (settings.textColor));
@@ -314,13 +314,13 @@ public:
             static constexpr u8 fontSize = 23;
 
             // Draw "Press "
-            renderer->drawString("按 ", false, baseX, baseY, fontSize, (tsl::bottomTextColor));
+            renderer->drawString("按", false, baseX, baseY, fontSize, (tsl::bottomTextColor));
             
             // Draw formatted key combo with colored sections
             renderer->drawStringWithColoredSections(formattedKeyCombo, false, KEY_SYMBOLS, baseX + pressWidth, baseY, fontSize, (tsl::bottomTextColor), (tsl::buttonColor));
             
             // Draw " to Exit"
-            renderer->drawString(" 退出", false, baseX + pressWidth + keyComboWidth, baseY, fontSize, (tsl::bottomTextColor));
+            renderer->drawString("退出", false, baseX + pressWidth + keyComboWidth, baseY, fontSize, (tsl::bottomTextColor));
         });
         
         auto rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", APP_VERSION);
