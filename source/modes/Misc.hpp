@@ -108,7 +108,7 @@ public:
                             if (Nifm_showpass)
                                 renderer->drawString(Nifm_pass, false, X_OFFSET, 305, 15, (settings.textColor));
                             else
-                                renderer->drawString("按Y显示密码", false, X_OFFSET, 305, 15, (settings.textColor));
+                                renderer->drawString("按 \uE0E3 显示密码", false, X_OFFSET, 305, 15, (settings.textColor));
                         }
                     }
                     else if (NifmConnectionType == NifmInternetConnectionType_Ethernet)

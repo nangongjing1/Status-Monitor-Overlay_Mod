@@ -144,10 +144,10 @@ public:
                 }
                 
                 // CPU Core labels and values
-                static auto core0Width = renderer->getTextDimensions("Core 0  ", false, 15).first;
-                static auto core1Width = renderer->getTextDimensions("Core 1  ", false, 15).first;
-                static auto core2Width = renderer->getTextDimensions("Core 2  ", false, 15).first;
-                static auto core3Width = renderer->getTextDimensions("Core 3  ", false, 15).first;
+                static auto core0Width = renderer->getTextDimensions("核心 #0  ", false, 15).first;
+                static auto core1Width = renderer->getTextDimensions("核心 #1  ", false, 15).first;
+                static auto core2Width = renderer->getTextDimensions("核心 #2  ", false, 15).first;
+                static auto core3Width = renderer->getTextDimensions("核心 #3  ", false, 15).first;
                 
                 const uint32_t core_height = height_offset + 30;
                 renderer->drawString("核心 #0  ", false, COMMON_MARGIN, core_height, 15, (settings.catColor2));
