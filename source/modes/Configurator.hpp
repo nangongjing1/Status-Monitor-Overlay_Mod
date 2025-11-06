@@ -309,7 +309,7 @@ public:
         
         if (isFPSGraphMode) {
             // FPS Graph: show_info and disable_screenshots
-            auto* showInfo = new tsl::elm::ToggleListItem("Info", getCurrentShowInfo());
+            auto* showInfo = new tsl::elm::ToggleListItem("详细信息", getCurrentShowInfo());
             showInfo->setStateChangedListener([this](bool state) {
                 ult::setIniFileValue(configIniPath, "fps-graph", "show_info", state ? "true" : "false");
             });
