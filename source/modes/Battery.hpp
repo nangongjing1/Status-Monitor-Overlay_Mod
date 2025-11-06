@@ -199,7 +199,7 @@ public:
         // Format all values
         snprintf(actualCapacity_c, sizeof(actualCapacity_c), "%.0f mAh", actualFullBatCapacity);
         snprintf(designedCapacity_c, sizeof(designedCapacity_c), "%.0f mAh", designedFullBatCapacity);
-        snprintf(batteryTemp_c, sizeof(batteryTemp_c), "%.1f\u2103C", (float)_batteryChargeInfoFields.BatteryTemperature / 1000);
+        snprintf(batteryTemp_c, sizeof(batteryTemp_c), "%.1f\u2103", (float)_batteryChargeInfoFields.BatteryTemperature / 1000);
         snprintf(rawCharge_c, sizeof(rawCharge_c), "%.1f%%", (float)_batteryChargeInfoFields.RawBatteryCharge / 1000);
         snprintf(batteryAge_c, sizeof(batteryAge_c), "%.1f%%", (float)_batteryChargeInfoFields.BatteryAge / 1000);
         snprintf(voltageAvg_c, sizeof(voltageAvg_c), "%.0f mV (%ds)", batVoltageAvg, batteryFiltered ? 45 : 5);
