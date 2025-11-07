@@ -654,7 +654,7 @@ public:
         tsl::hlp::requestForeground(false);
 
         // (Optional) hide Tesla’s footer if you don’t want it
-        // deactivateOriginalFooter = true;
+        //deactivateOriginalFooter = true;
     }
 
     virtual std::unique_ptr<tsl::Gui> loadInitialGui() override {
@@ -738,7 +738,7 @@ public:
 
     virtual void onShow() override {
         tsl::hlp::requestForeground(false);
-        // deactivateOriginalFooter = true;
+        //deactivateOriginalFooter = true;
     }
 
     virtual std::unique_ptr<tsl::Gui> loadInitialGui() override {
@@ -821,7 +821,7 @@ public:
 
     virtual void onShow() override {
         tsl::hlp::requestForeground(false);
-        // deactivateOriginalFooter = true;
+        //deactivateOriginalFooter = true;
     }
 
     virtual std::unique_ptr<tsl::Gui> loadInitialGui() override {

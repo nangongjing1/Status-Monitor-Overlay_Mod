@@ -1462,6 +1462,7 @@ struct FullSettings {
     bool showFPS;
     bool showRES;
     bool showRDSD;
+    bool useDynamicColors;
     bool disableScreenshots;
     uint16_t separatorColor;
     uint16_t catColor1;
@@ -1495,6 +1496,7 @@ struct MiniSettings {
     std::string show;
     bool showRAMLoad;
     bool showRAMLoadCPUGPU;
+    bool invertBatteryDisplay;
     bool disableScreenshots;
     bool sleepExit;
     //int setPos;
@@ -1517,6 +1519,7 @@ struct MicroSettings {
     bool showDTC;
     bool useDTCSymbol;
     std::string dtcFormat;
+    bool invertBatteryDisplay;
     size_t handheldFontSize;
     size_t dockedFontSize;
     uint8_t alignTo;
@@ -1559,7 +1562,9 @@ struct FpsGraphSettings {
     uint16_t maxFPSTextColor;
     uint16_t minFPSTextColor;
     uint16_t textColor;
+    uint16_t catColor;
     //int setPos;
+    bool useDynamicColors;
     bool disableScreenshots;
     int frameOffsetX;
     int frameOffsetY;
@@ -1602,12 +1607,13 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     settings->spacing = 8;
     convertStrToRGBA4444("#0009", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
-    convertStrToRGBA4444("#2DFF", &(settings->separatorColor));
+    convertStrToRGBA4444("#888F", &(settings->separatorColor));
     convertStrToRGBA4444("#2DFF", &(settings->catColor));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
     settings->show = "DTC+BAT+CPU+GPU+RAM+TMP+FPS+RES";
     settings->showRAMLoad = true;
     settings->showRAMLoadCPUGPU = false;
+    settings->invertBatteryDisplay = true;
     settings->refreshRate = 1;
     settings->disableScreenshots = false;
     settings->sleepExit = false;
@@ -1809,6 +1815,14 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         settings->showRAMLoadCPUGPU = (key != "FALSE");
     }
 
+    // Invert the battery display value
+    it = section.find("invert_battery_display");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->invertBatteryDisplay = (key != "FALSE");
+    }
+
     // Process disable screenshots
     it = section.find("disable_screenshots");
     if (it != section.end()) {
@@ -1878,11 +1892,12 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
     settings->showDTC = true;
     settings->useDTCSymbol = true;
     settings->dtcFormat = "%H:%M:%S";//"%Y-%m-%d %I:%M:%S %p";
+    settings->invertBatteryDisplay = false;
     settings->handheldFontSize = 15;
     settings->dockedFontSize = 15;
     settings->alignTo = 1; // CENTER
     convertStrToRGBA4444("#0009", &(settings->backgroundColor));
-    convertStrToRGBA4444("#2DFF", &(settings->separatorColor));
+    convertStrToRGBA4444("#888F", &(settings->separatorColor));
     convertStrToRGBA4444("#2DFF", &(settings->catColor));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
     settings->show = "FPS+CPU+GPU+RAM+SOC+BAT+DTC";
@@ -2005,6 +2020,14 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
         key = it->second;
         settings->dtcFormat = std::move(key);
     }
+
+    // Invert the battery display value
+    it = section.find("invert_battery_display");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->invertBatteryDisplay = (key != "FALSE");
+    }
     
     // Process font sizes with shared bounds
     static constexpr long minFontSize = 8;
@@ -2111,7 +2134,7 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     settings->dockedFontSize = 40;
     convertStrToRGBA4444("#0009", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
-    convertStrToRGBA4444("#FFFF", &(settings->textColor));
+    convertStrToRGBA4444("#8CFF", &(settings->textColor));
     //settings->setPos = 0;
     settings->refreshRate = 30;
     settings->disableScreenshots = false;
@@ -2236,7 +2259,7 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     convertStrToRGBA4444("#0009", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
     convertStrToRGBA4444("#888C", &(settings->fpsColor));
-    convertStrToRGBA4444("#F00F", &(settings->borderColor));
+    convertStrToRGBA4444("#2DFF", &(settings->borderColor));
     convertStrToRGBA4444("#8888", &(settings->dashedLineColor));
     convertStrToRGBA4444("#FFFF", &(settings->maxFPSTextColor));
     convertStrToRGBA4444("#FFFF", &(settings->minFPSTextColor));
@@ -2245,8 +2268,10 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     convertStrToRGBA4444("#0C0F", &(settings->perfectLineColor));
 
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
+    convertStrToRGBA4444("#0F0F", &(settings->catColor));
 
     settings->refreshRate = 30;
+    settings->useDynamicColors = true;
     settings->disableScreenshots = false;
 
     settings->frameOffsetX = 10;
@@ -2309,6 +2334,13 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
         settings->showInfo = (key == "TRUE");
     }
 
+    it = section.find("use_dynamic_colors");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->useDynamicColors = (key == "TRUE");
+    }
+
     // Process disable screenshots
     it = section.find("disable_screenshots");
     if (it != section.end()) {
@@ -2350,7 +2382,8 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
         {"main_line_color", &settings->mainLineColor},
         {"rounded_line_color", &settings->roundedLineColor},
         {"perfect_line_color", &settings->perfectLineColor},
-        {"text_color", &settings->textColor}
+        {"text_color", &settings->textColor},
+        {"cat_color", &settings->catColor}
     };
     
     for (const auto& mapping : colorMappings) {
@@ -2373,8 +2406,9 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
     settings->showFPS = true;
     settings->showRES = true;
     settings->showRDSD = true;
+    settings->useDynamicColors = true;
     settings->disableScreenshots = false;
-    convertStrToRGBA4444("#2DFF", &(settings->separatorColor));
+    convertStrToRGBA4444("#888F", &(settings->separatorColor));
     convertStrToRGBA4444("#8FFF", &(settings->catColor1));
     convertStrToRGBA4444("#8CFF", &(settings->catColor2));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
@@ -2460,6 +2494,13 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
         settings->showRDSD = !(key == "FALSE");
     }
     
+    it = section.find("use_dynamic_colors");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->useDynamicColors = (key == "TRUE");
+    }
+
     // Process disable screenshots
     it = section.find("disable_screenshots");
     if (it != section.end()) {

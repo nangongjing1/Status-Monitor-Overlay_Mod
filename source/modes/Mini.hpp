@@ -5,7 +5,7 @@ private:
     char GPU_Load_c[32] = "";
     char Rotation_SpeedLevel_c[64] = "";
     char RAM_var_compressed_c[128] = "";
-    char SoCPCB_temperature_c[64] = "";
+    char Battery_c[64] = "";
     char soc_temperature_c[64] = "";
     char skin_temperature_c[64] = "";
 
@@ -41,7 +41,7 @@ public:
         //tsl::initializeUltrahandSettings();
         PowerConsumption = 0.0f;
         batTimeEstimate = -1;
-        strcpy(SoCPCB_temperature_c, "-.-- W-.-% [--:--]"); // Default display
+        strcpy(Battery_c, "-.-- W-.-% [--:--]"); // Default display
 
         GetConfigSettings(&settings);
         apmGetPerformanceMode(&performanceMode);
@@ -49,18 +49,7 @@ public:
             fontsize = settings.handheldFontSize;
         }
         else fontsize = settings.dockedFontSize;
-        //switch(settings.setPos) {
-        //    case 1:
-        //    case 4:
-        //    case 7:
-        //        tsl::gfx::Renderer::get().setLayerPos(624, 0);
-        //        break;
-        //    case 2:
-        //    case 5:
-        //    case 8:
-        //        tsl::gfx::Renderer::get().setLayerPos(1248, 0);
-        //        break;
-        //}
+
         if (settings.disableScreenshots) {
             tsl::gfx::Renderer::get().removeScreenshotStacks();
         }
@@ -110,7 +99,7 @@ public:
         
             while (overlay->touchPollRunning.load(std::memory_order_acquire)) {
                 // Only poll when rendering and not dragging
-                if (!overlay->isDragging && isRendering) {
+                {
                     inputDetected = false;
                     
                     // Check touch in bounds
@@ -185,13 +174,14 @@ public:
 
                     else {
                         minusHoldStart = plusHoldStart = 0;
+                        overlay->buttonState.minusDragActive.exchange(false, std::memory_order_acq_rel);
                         overlay->buttonState.plusDragActive.exchange(false, std::memory_order_acq_rel);
                     }
                     
                     // Disable rendering on any input, re-enable when no input
                     static bool resetOnce = true;
                     if (inputDetected) {
-                        if (resetOnce) {
+                        if (resetOnce && isRendering) {
                             isRendering = false;
                             leventSignal(&renderingStopEvent);
                             resetOnce = false;
@@ -1203,14 +1193,14 @@ public:
             {"BAT", [&]() {
                 if (!(flags & 32)) {
                     if (Temp[0]) strcat(Temp, "\n");
-                    strcat(Temp, SoCPCB_temperature_c);
+                    strcat(Temp, Battery_c);
                     flags |= 32;
                 }
             }},
             {"DRAW", [&]() {
                 if (!(flags & 32)) {
                     if (Temp[0]) strcat(Temp, "\n");
-                    strcat(Temp, SoCPCB_temperature_c);
+                    strcat(Temp, Battery_c);
                     flags |= 32;
                 }
             }},
@@ -1324,12 +1314,20 @@ public:
             strcpy(remainingBatteryLife, "--:--");
         }
         
-        snprintf(SoCPCB_temperature_c, sizeof SoCPCB_temperature_c,
-                 "%.2f W%.1f%% [%s]",
-                 drawW,
-                 (float)_batteryChargeInfoFields.RawBatteryCharge / 1000.0f,
-                 remainingBatteryLife);
-        
+        if (!settings.invertBatteryDisplay) {
+            snprintf(Battery_c, sizeof Battery_c,
+                     "%.2f W%.1f%% [%s]",
+                     drawW,
+                     (float)_batteryChargeInfoFields.RawBatteryCharge / 1000.0f,
+                     remainingBatteryLife);
+        } else {
+            snprintf(Battery_c, sizeof Battery_c,
+                     "%.1f%% [%s]%.2f W",
+                     (float)_batteryChargeInfoFields.RawBatteryCharge / 1000.0f,
+                     remainingBatteryLife,
+                     drawW);
+        }
+
         mutexUnlock(&mutex_BatteryChecker);
 
         //static bool skipOnce = true;
@@ -1379,7 +1377,7 @@ public:
 
         static bool clearOnRelease = false;
 
-        if (clearOnRelease) {
+        if (clearOnRelease && !isRendering) {
             clearOnRelease = false;
             isRendering = true;
             leventClear(&renderingStopEvent);
