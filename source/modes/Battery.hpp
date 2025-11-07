@@ -139,17 +139,17 @@ public:
                 currentY += LINE_HEIGHT;
                 
                 // VBUS Current Limit
-                renderer->drawString("VBUS 电流限制", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
+                renderer->drawString("VBUS电流限制", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
                 renderer->drawString(vbusCurrentLimit_c, false, VALUE_X, currentY, FONT_SIZE, VALUE_COLOR);
                 currentY += LINE_HEIGHT;
                 
                 // Charge Voltage Limit
-                renderer->drawString("最大电压", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
+                renderer->drawString("电压限制", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
                 renderer->drawString(chargeVoltageLimit_c, false, VALUE_X, currentY, FONT_SIZE, VALUE_COLOR);
                 currentY += LINE_HEIGHT;
                 
                 // Charge Current Limit
-                renderer->drawString("最小电流", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
+                renderer->drawString("电流限制", false, LABEL_X, currentY, FONT_SIZE, LABEL_COLOR_2);
                 renderer->drawString(chargeCurrentLimit_c, false, VALUE_X, currentY, FONT_SIZE, VALUE_COLOR);
                 currentY += LINE_HEIGHT;
                 

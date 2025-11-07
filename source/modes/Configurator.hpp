@@ -1167,7 +1167,7 @@ public:
         }
         list->jumpToItem("", _jumpItemValue, false);
         
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("状态监控", "色彩");
+        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("状态监控", "色彩设置");
         rootFrame->setContent(list);
         return rootFrame;
     }
@@ -1862,7 +1862,7 @@ public:
 
         // 2. Colors (not Full mode - it has no color settings)
         //if (!isFullMode) {
-        auto* colors = new tsl::elm::ListItem("色彩");
+        auto* colors = new tsl::elm::ListItem("色彩设置");
         colors->setValue(ult::DROPDOWN_SYMBOL);
         colors->setClickListener([this](uint64_t keys) {
             if (keys & KEY_A) {
