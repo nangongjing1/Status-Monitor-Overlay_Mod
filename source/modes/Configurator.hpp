@@ -473,6 +473,12 @@ public:
             
         } else if (isFPSCounterMode) {
             // FPS Counter mode: only disable_screenshots
+            auto* integerCounter = new tsl::elm::ToggleListItem("使用整数", getCurrentUseIntegerCounter("use_integer_counter"));
+            integerCounter->setStateChangedListener([this](bool state) {
+                ult::setIniFileValue(configIniPath, "fps-counter", "use_integer_counter", state ? "true" : "false");
+            });
+            list->addItem(integerCounter);
+
             auto* disableScreenshots = new tsl::elm::ToggleListItem("禁用截图", getCurrentDisableScreenshots("fps-counter"));
             disableScreenshots->setStateChangedListener([this](bool state) {
                 ult::setIniFileValue(configIniPath, "fps-counter", "disable_screenshots", state ? "true" : "false");
@@ -598,6 +604,13 @@ private:
         if (value.empty()) return true;
         convertToUpper(value);
         return value == "TRUE";
+    }
+
+    bool getCurrentUseIntegerCounter(const std::string& section) {
+        std::string value = ult::parseValueFromIniSection(configIniPath, section, "use_integer_counter");
+        if (value.empty()) return false;  // Default is false (screenshots enabled)
+        convertToUpper(value);
+        return value != "FALSE";  // True if not explicitly "FALSE"
     }
 
     bool getCurrentDisableScreenshots(const std::string& section) {
