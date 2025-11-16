@@ -922,7 +922,7 @@ bool checkOverlayFile(const std::string& filename) {
 }
 
 // Helper function to setup micro mode paths
-void setupMode() {
+inline void setupMode() {
     ult::DefaultFramebufferWidth = 1280;
     ult::DefaultFramebufferHeight = 720;
 
@@ -1093,7 +1093,7 @@ int main(int argc, char **argv) {
                     lastSelectedItem += token;
                     
                     // Stop if token ends with quote
-                    char lastChar = token[strlen(token) - 1];
+                    const char lastChar = token[strlen(token) - 1];
                     if (lastChar == '"' || lastChar == '\'') {
                         ++arg;
                         break;
