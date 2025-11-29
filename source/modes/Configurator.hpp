@@ -1658,7 +1658,9 @@ public:
             }
         }
         
-        static const std::vector<std::string> allElements = {"DTC", "BAT", "CPU", "GPU", "RAM", "TMP", "FPS", "RES", "SOC", "READ"};
+        static constexpr std::string_view allElements[] = {
+            "DTC","BAT","CPU","GPU","RAM","MEM","READ","SOC","TMP","FPS","RES"
+        };
         
         // 定义元素的中文显示名称
         static const std::map<std::string, std::string> elementDisplayNames = {
@@ -1674,9 +1676,16 @@ public:
             {"READ", "读取速度"}
         };
         
-        for (const std::string& element : allElements) {
-            if (std::find(elementOrder.begin(), elementOrder.end(), element) == elementOrder.end()) {
-                elementOrder.push_back(element);
+        auto exists = [&](std::string_view s) {
+            return std::find(elementOrder.begin(), elementOrder.end(), s) != elementOrder.end();
+        };
+        
+        for (auto elem : allElements) {
+            if (!isMiniMode && elem == "MEM")
+                continue;
+        
+            if (!exists(elem)) {
+                elementOrder.emplace_back(elem);
             }
         }
         
