@@ -981,7 +981,7 @@ int main(int argc, char **argv) {
 
     // Initialize buffer sizes based on expanded memory setting
     if (ult::expandedMemory) {
-        ult::furtherExpandedMemory = ult::currentHeapSize >= ult::OverlayHeapSize::Size_10MB;
+        ult::furtherExpandedMemory = ult::currentHeapSize >= ult::OverlayHeapSize::Size_4MB;
         
         ult::loaderTitle += !ult::furtherExpandedMemory ? "+" : "×";
         ult::COPY_BUFFER_SIZE = 262144;
