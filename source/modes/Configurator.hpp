@@ -157,7 +157,7 @@ public:
         
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
         
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("状态监控", "Alpha");
+        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("状态监控", "透明度");
         rootFrame->setContent(list);
         return rootFrame;
     }
@@ -226,7 +226,7 @@ public:
     
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("设置时间格式"));
+        list->addItem(new tsl::elm::CategoryHeader("时间显示格式"));
 
         const std::string section = isMiniMode ? "mini" : "micro";
         std::string currentValue = ult::parseValueFromIniSection(configIniPath, section, "dtc_format");
@@ -365,7 +365,7 @@ public:
             });
             list->addItem(showRDSD);
 
-            auto* dynamicColors = new tsl::elm::ToggleListItem("动态色彩", getCurrentUseDynamicColors());
+            auto* dynamicColors = new tsl::elm::ToggleListItem("使用动态颜色", getCurrentUseDynamicColors());
             dynamicColors->setStateChangedListener([this](bool state) {
                 ult::setIniFileValue(configIniPath, "fps-graph", "use_dynamic_colors", state ? "true" : "false");
             });
@@ -424,7 +424,7 @@ public:
             list->addItem(socVoltage);
 
             if (isMiniMode) {
-                auto* ramLoadCPUGPU = new tsl::elm::ToggleListItem("RAM 负载(CPU/GPU)", getCurrentShowRAMLoadCPUGPU());
+            auto* ramLoadCPUGPU = new tsl::elm::ToggleListItem("内存负载 CPU/GPU", getCurrentShowRAMLoadCPUGPU());
                 ramLoadCPUGPU->setStateChangedListener([this, section](bool state) {
                     ult::setIniFileValue(configIniPath, section, "show_RAM_load_CPU_GPU", state ? "true" : "false");
                 });
@@ -445,7 +445,7 @@ public:
             });
             list->addItem(dtcSymbol);
 
-            auto* dynamicColors = new tsl::elm::ToggleListItem("动态色彩", getCurrentUseDynamicColors());
+            auto* dynamicColors = new tsl::elm::ToggleListItem("使用动态颜色", getCurrentUseDynamicColors());
             dynamicColors->setStateChangedListener([this, section](bool state) {
                 ult::setIniFileValue(configIniPath, section, "use_dynamic_colors", state ? "true" : "false");
             });
@@ -473,12 +473,13 @@ public:
             
         } else if (isFPSCounterMode) {
             // FPS Counter mode: only disable_screenshots
-            auto* integerCounter = new tsl::elm::ToggleListItem("使用整数", getCurrentUseIntegerCounter("fps-counter"));
+            auto* integerCounter = new tsl::elm::ToggleListItem("显示整数帧数", getCurrentUseIntegerCounter("use_integer_counter"));
             integerCounter->setStateChangedListener([this](bool state) {
                 ult::setIniFileValue(configIniPath, "fps-counter", "use_integer_counter", state ? "true" : "false");
             });
             list->addItem(integerCounter);
 
+            // FPS Counter mode: only disable_screenshots
             auto* disableScreenshots = new tsl::elm::ToggleListItem("禁用截图", getCurrentDisableScreenshots("fps-counter"));
             disableScreenshots->setStateChangedListener([this](bool state) {
                 ult::setIniFileValue(configIniPath, "fps-counter", "disable_screenshots", state ? "true" : "false");
@@ -512,7 +513,7 @@ private:
     // Helper methods for getting current toggle states
     bool getCurrentShowInfo() {
         std::string value = ult::parseValueFromIniSection(configIniPath, "fps-graph", "show_info");
-        if (value.empty()) return true;
+        if (value.empty()) return false;
         convertToUpper(value);
         return value == "TRUE";
     }
@@ -1057,45 +1058,45 @@ public:
             {"浅灰", "#888F"},
             {"银色", "#CCCF"},
             {"白色", "#FFFF"},
-            
+
             // Reds
             {"深红", "#800F"},
             {"红色", "#F00F"},
             {"浅红", "#F88F"},
             {"粉色", "#F8AF"},
-            
+
             // Greens
             {"深绿", "#080F"},
             {"绿色", "#0F0F"},
             {"柠檬绿", "#0C0F"},
             {"浅绿", "#8F8F"},
-            
+
             // Blues
             {"深蓝", "#003F"},
             {"蓝色", "#00FF"},
             {"浅蓝", "#2DFF"},
             {"天蓝", "#8CFF"},
-            
+
             // Purples
             {"深紫", "#808F"},
             {"紫色", "#80FF"},
             {"浅紫", "#C8FF"},
             {"紫色", "#A0FF"},
-            
+
             // Yellows & Oranges
             {"橙色", "#F80F"},
             {"黄色", "#FF0F"},
             {"浅黄", "#FFCF"},
-            
+
             // Cyans & Teals
             {"水鸭色", "#088F"},
             {"青色", "#0FFF"},
             {"浅青", "#8FFF"},
-            
+
             // Magentas & Pinks
             {"洋红", "#F0FF"},
             {"亮粉", "#F8CF"},
-            
+
             // Browns
             {"棕色", "#840F"},
             {"浅棕", "#A86F"}
@@ -1229,7 +1230,7 @@ public:
     
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("色彩设置"));
+        list->addItem(new tsl::elm::CategoryHeader("颜色设置"));
         
         auto getCurrentColor = [this](const std::string& key, const std::string& def) {
             std::string section;
@@ -1355,11 +1356,11 @@ public:
             list->addItem(bgColor);
             
             // Background Alpha (new)
-            auto* bgAlpha = new tsl::elm::ListItem("背景透明度");
+            auto* bgAlpha = new tsl::elm::ListItem("焦点透明度");
             bgAlpha->setValue(getAlphaPercentage(bgCurrentColor));
             bgAlpha->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<AlphaSelector>(modeName, "background_color", "背景透明度");
+                    tsl::changeTo<AlphaSelector>(modeName, "background_color", "焦点透明度");
                     return true;
                 }
                 return false;
@@ -1432,12 +1433,12 @@ public:
             static const std::vector<ColorSetting> fpsGraphColors = {
                 {"FPS计数器", "fps_counter_color", "#888C", true},      // background type
                 {"边框", "border_color", "#2DFF", false},               // text type
-                {"虚线", "dashed_line_color", "#8888", true},          // background type
-                {"最大FPS文本", "max_fps_text_color", "#FFFF", false}, // text type
-                {"最小FPS文本", "min_fps_text_color", "#FFFF", false}, // text type
-                {"主线", "main_line_color", "#FFFF", false},           // text type
-                {"圆角线", "rounded_line_color", "#F0FF", false},      // text type
-                {"完美线", "perfect_line_color", "#0C0F", false}       // text type
+                {"虚线", "dashed_line_color", "#8888", true},      // background type
+                {"最大FPS文本", "max_fps_text_color", "#FFFF", false},   // text type
+                {"最小FPS文本", "min_fps_text_color", "#FFFF", false},   // text type
+                {"分割线", "main_line_color", "#FFFF", false},         // text type
+                {"圆角线", "rounded_line_color", "#F0FF", false},   // text type
+                {"完美线", "perfect_line_color", "#0C0F", false}    // text type
             };
             
             for (const auto& color : fpsGraphColors) {
@@ -1482,7 +1483,7 @@ public:
             catColor1->setValue(getColorName(getCurrentColor("cat_color_1", "#8FFF")));
             catColor1->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color 1", "cat_color_1", "#8FFF");
+                    tsl::changeTo<ColorSelector>(modeName, "标题类别颜色", "cat_color_1", "#8FFF");
                     return true;
                 }
                 return false;
@@ -1494,7 +1495,7 @@ public:
             catColor2->setValue(getColorName(getCurrentColor("cat_color_2", "#2DFF")));
             catColor2->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color 2", "cat_color_2", "#2DFF");
+                    tsl::changeTo<ColorSelector>(modeName, "文本类别颜色", "cat_color_2", "#2DFF");
                     return true;
                 }
                 return false;
@@ -1506,19 +1507,19 @@ public:
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
             sepColor->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "Separator Color", "separator_color", "#888F");
+                    tsl::changeTo<ColorSelector>(modeName, "分隔符颜色", "separator_color", "#888F");
                     return true;
                 }
                 return false;
             });
             list->addItem(sepColor);
         } else if (isMiniMode) {
-            auto* catColor = new tsl::elm::ListItem("类别颜色");
+            auto* catColor = new tsl::elm::ListItem("文本颜色");
             // Display color name for category colors
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
             catColor->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "类别颜色", "cat_color", "#2DFF");
+                    tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
                 return false;
@@ -1538,11 +1539,11 @@ public:
             list->addItem(sepColor);
             
         } else if (isMicroMode) {
-            auto* catColor = new tsl::elm::ListItem("类别颜色");
+            auto* catColor = new tsl::elm::ListItem("文本颜色");
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
             catColor->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "类别颜色", "cat_color", "#2DFF");
+                    tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
                 return false;
@@ -1564,11 +1565,11 @@ public:
             
         } else if (isGameResolutionsMode) {
             // Game Resolutions: only category color (no separator)
-            auto* catColor = new tsl::elm::ListItem("类别颜色");
+            auto* catColor = new tsl::elm::ListItem("文本颜色");
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
             catColor->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "类别颜色", "cat_color", "#2DFF");
+                    tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
                 return false;
@@ -1577,7 +1578,7 @@ public:
         }
         // FPS Counter mode: only background and text colors (already added above)
         // Full mode: NO color settings at all (excluded from this function)
-        
+
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
         {
             jumpItemName = "";
@@ -1619,7 +1620,7 @@ public:
     
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("显示项目 " + ult::DIVIDER_SYMBOL + " \uE0E3 上移 " + ult::DIVIDER_SYMBOL + " \uE0E2 下移"));
+        list->addItem(new tsl::elm::CategoryHeader("显示项目 " + ult::DIVIDER_SYMBOL + " \uE0E3 下移 " + ult::DIVIDER_SYMBOL + " \uE0E2 上移"));
 
         const std::string section = isMiniMode ? "mini" : "micro";
         std::string showValue = ult::parseValueFromIniSection(configIniPath, section, "show");
@@ -1658,9 +1659,7 @@ public:
             }
         }
         
-        static constexpr std::string_view allElements[] = {
-            "DTC","BAT","CPU","GPU","RAM","MEM","READ","SOC","TMP","FPS","RES"
-        };
+        static const std::vector<std::string> allElements = {"DTC", "BAT", "CPU", "GPU", "RAM", "TMP", "FPS", "RES", "SOC", "READ"};
         
         // 定义元素的中文显示名称
         static const std::map<std::string, std::string> elementDisplayNames = {
@@ -1676,16 +1675,9 @@ public:
             {"READ", "读取速度"}
         };
         
-        auto exists = [&](std::string_view s) {
-            return std::find(elementOrder.begin(), elementOrder.end(), s) != elementOrder.end();
-        };
-        
-        for (auto elem : allElements) {
-            if (!isMiniMode && elem == "MEM")
-                continue;
-        
-            if (!exists(elem)) {
-                elementOrder.emplace_back(elem);
+        for (const std::string& element : allElements) {
+            if (std::find(elementOrder.begin(), elementOrder.end(), element) == elementOrder.end()) {
+                elementOrder.push_back(element);
             }
         }
         
@@ -1701,7 +1693,7 @@ public:
             }
             
             auto* elementItem = new tsl::elm::ListItem(displayName);
-            elementItem->setValue(isEnabled ? "On" : "Off", !isEnabled ? true : false);
+            elementItem->setValue(isEnabled ? "开启" : "关闭", !isEnabled ? true : false);
             
             elementItem->setClickListener([this, elementItem, element, displayName](uint64_t keys) {
                 static bool hasNotTriggeredAnimation = false;
@@ -2007,32 +1999,24 @@ public:
             
         //} else if (isGameResolutionsMode || isFPSCounterMode || isFPSGraphMode) {
         //    // Both horizontal and vertical positioning
-        //    auto* layerPosH = new tsl::elm::ListItem("水平位置");
+        //    auto* layerPosH = new tsl::elm::ListItem("Horizontal Position");
         //    layerPosH->setValue(getCurrentLayerPosRight());
         //    layerPosH->setClickListener([this, layerPosH](uint64_t keys) {
         //        if (keys & KEY_A) {
         //            const std::string next = cycleLayerPosRight();
-        //            // 更新显示值中文
-        //            if (next == "Left") layerPosH->setValue("左侧");
-        //            else if (next == "Center") layerPosH->setValue("居中");
-        //            else if (next == "Right") layerPosH->setValue("右侧");
-        //            else layerPosH->setValue(next);
+        //            layerPosH->setValue(next);
         //            return true;
         //        }
         //        return false;
         //    });
         //    list->addItem(layerPosH);
         //    
-        //    auto* layerPosV = new tsl::elm::ListItem("垂直位置");
+        //    auto* layerPosV = new tsl::elm::ListItem("Vertical Position");
         //    layerPosV->setValue(getCurrentLayerPosBottom());
         //    layerPosV->setClickListener([this, layerPosV](uint64_t keys) {
         //        if (keys & KEY_A) {
         //            const std::string next = cycleLayerPosBottom();
-        //            // 更新显示值为中文
-        //            if (next == "Top") layerPosV->setValue("顶部");
-        //            else if (next == "Center") layerPosV->setValue("居中");
-        //            else if (next == "Bottom") layerPosV->setValue("底部");
-        //            else layerPosV->setValue(next);
+        //            layerPosV->setValue(next);
         //            return true;
         //        }
         //        return false;
