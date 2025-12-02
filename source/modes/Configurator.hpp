@@ -424,7 +424,7 @@ public:
             list->addItem(socVoltage);
 
             if (isMiniMode) {
-            auto* ramLoadCPUGPU = new tsl::elm::ToggleListItem("内存负载 CPU/GPU", getCurrentShowRAMLoadCPUGPU());
+                auto* ramLoadCPUGPU = new tsl::elm::ToggleListItem("内存负载 CPU/GPU", getCurrentShowRAMLoadCPUGPU());
                 ramLoadCPUGPU->setStateChangedListener([this, section](bool state) {
                     ult::setIniFileValue(configIniPath, section, "show_RAM_load_CPU_GPU", state ? "true" : "false");
                 });
@@ -473,7 +473,7 @@ public:
             
         } else if (isFPSCounterMode) {
             // FPS Counter mode: only disable_screenshots
-            auto* integerCounter = new tsl::elm::ToggleListItem("显示整数帧数", getCurrentUseIntegerCounter("use_integer_counter"));
+            auto* integerCounter = new tsl::elm::ToggleListItem("显示整数帧数", getCurrentUseIntegerCounter("fps-counter"));
             integerCounter->setStateChangedListener([this](bool state) {
                 ult::setIniFileValue(configIniPath, "fps-counter", "use_integer_counter", state ? "true" : "false");
             });
@@ -513,7 +513,7 @@ private:
     // Helper methods for getting current toggle states
     bool getCurrentShowInfo() {
         std::string value = ult::parseValueFromIniSection(configIniPath, "fps-graph", "show_info");
-        if (value.empty()) return false;
+        if (value.empty()) return true;
         convertToUpper(value);
         return value == "TRUE";
     }
