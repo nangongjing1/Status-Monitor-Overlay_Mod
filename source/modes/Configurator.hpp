@@ -365,7 +365,7 @@ public:
             });
             list->addItem(showRDSD);
 
-            auto* dynamicColors = new tsl::elm::ToggleListItem("使用动态颜色", getCurrentUseDynamicColors());
+            auto* dynamicColors = new tsl::elm::ToggleListItem("动态色彩", getCurrentUseDynamicColors());
             dynamicColors->setStateChangedListener([this](bool state) {
                 ult::setIniFileValue(configIniPath, "fps-graph", "use_dynamic_colors", state ? "true" : "false");
             });
@@ -445,7 +445,7 @@ public:
             });
             list->addItem(dtcSymbol);
 
-            auto* dynamicColors = new tsl::elm::ToggleListItem("使用动态颜色", getCurrentUseDynamicColors());
+            auto* dynamicColors = new tsl::elm::ToggleListItem("动态色彩", getCurrentUseDynamicColors());
             dynamicColors->setStateChangedListener([this, section](bool state) {
                 ult::setIniFileValue(configIniPath, section, "use_dynamic_colors", state ? "true" : "false");
             });
@@ -1658,9 +1658,11 @@ public:
                 }
             }
         }
-        
-        static const std::vector<std::string> allElements = {"DTC", "BAT", "CPU", "GPU", "RAM", "TMP", "FPS", "RES", "SOC", "READ"};
-        
+                
+        static constexpr std::string_view miniElements[] = {
+            "DTC","BAT","CPU","GPU","RAM","MEM","READ","SOC","TMP","FPS","RES"
+        };
+
         // 定义元素的中文显示名称
         static const std::map<std::string, std::string> elementDisplayNames = {
             {"DTC", "时间"},
@@ -1674,10 +1676,32 @@ public:
             {"SOC", "核心温度"},
             {"READ", "读取速度"}
         };
+
+        static constexpr std::string_view microElements[] = {
+            "FPS","CPU","GPU","RAM","READ","SOC","TMP","RES","BAT","DTC"
+        };
         
-        for (const std::string& element : allElements) {
-            if (std::find(elementOrder.begin(), elementOrder.end(), element) == elementOrder.end()) {
-                elementOrder.push_back(element);
+        // Use span or array reference instead of pointer
+        const auto* allElements = isMiniMode ? miniElements : microElements;
+        const size_t allElementsSize = isMiniMode ? std::size(miniElements) : std::size(microElements);
+        
+        elementOrder.clear();
+        if (!orderValue.empty()) {
+            convertToUpper(orderValue);
+            ult::StringStream orderSS(orderValue);
+            std::string orderItem;
+            while (orderSS.getline(orderItem, '+')) {
+                if (!orderItem.empty()) {
+                    elementOrder.push_back(orderItem);
+                }
+            }
+        } else {
+            // Initialize with allElements order instead
+            for (size_t i = 0; i < allElementsSize; i++) {
+                auto elem = allElements[i];
+                if (!isMiniMode && elem == "MEM")
+                    continue;
+                elementOrder.emplace_back(elem);
             }
         }
         
