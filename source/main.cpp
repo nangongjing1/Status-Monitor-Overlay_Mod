@@ -127,8 +127,10 @@ public:
         //}
         //tsl::elm::g_disableMenuCacheOnReturn.store(true, std::memory_order_release);
         tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", "Modes");
-        if (!lastSelectedItem.empty())
+        if (!lastSelectedItem.empty()) {
             list->jumpToItem(lastSelectedItem);
+        }
+        lastSelectedItem = "Other";
             
         rootFrame->setContent(list);
 
@@ -154,7 +156,7 @@ public:
         }
 
         if (keysDown & KEY_B) {
-            lastSelectedItem = "Other";
+            
             tsl::swapTo<MainMenu>();
             triggerRumbleDoubleClick.store(true, std::memory_order_release);
             triggerExitSound.store(true, std::memory_order_release);
@@ -358,8 +360,11 @@ public:
         });
         list->addItem(Other);
 
-        if (!lastSelectedItem.empty())
+        if (!lastSelectedItem.empty()) {
             list->jumpToItem(lastSelectedItem);
+            lastSelectedItem = "";
+        }
+
 
         //list->disableCaching();
         tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", "南宫镜 汉化");
