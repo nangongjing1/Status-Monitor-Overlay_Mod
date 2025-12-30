@@ -621,7 +621,7 @@ void Misc(void*) {
             
             // VDD2 (DRAM) - different domains for Mariko vs Erista
             if (isMariko) {
-                if (R_SUCCEEDED(rgltrOpenSession(&session, PcvPowerDomainId_Max77812_Dram))) {
+                if (R_SUCCEEDED(rgltrOpenSession(&session, PcvPowerDomainId_Max77620_Sd1))) {
                     if (R_FAILED(rgltrGetVoltage(&session, &vdd2_raw))) {
                         vdd2_raw = 0;
                     }
@@ -639,7 +639,7 @@ void Misc(void*) {
             
             // VDDQ
             if (isMariko) {
-                if (R_SUCCEEDED(rgltrOpenSession(&session, PcvPowerDomainId_Max77620_Sd1))) {
+                if (R_SUCCEEDED(rgltrOpenSession(&session, PcvPowerDomainId_Max77812_Dram))) {
                     if (R_FAILED(rgltrGetVoltage(&session, &vddq_raw))) {
                         vddq_raw = 0;
                     }
@@ -1397,6 +1397,7 @@ struct MiniSettings {
     uint8_t refreshRate;
     bool realFrequencies;
     bool realVolts;
+    bool showLabels;
     bool showFullCPU;
     bool showFullResolution;
     bool showFanPercentage;
@@ -1535,6 +1536,7 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     convertStrToRGBA4444("#2DFF", &(settings->catColor));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
     settings->show = "DTC+BAT+CPU+GPU+RAM+TMP+FPS+RES";
+    settings->showLabels = true;
     settings->showRAMLoad = true;
     settings->showRAMLoadCPUGPU = false;
     settings->invertBatteryDisplay = true;
@@ -1645,6 +1647,13 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
             settings->textColor = temp;
     }
     
+    it = section.find("show_labels");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showLabels = !(key == "FALSE");
+    }
+
     // Process RAM load flag
     it = section.find("show_full_cpu");
     if (it != section.end()) {

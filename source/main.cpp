@@ -1018,7 +1018,7 @@ int main(int argc, char **argv) {
     if (argc > 0) {
         filename = argv[0]; // set global
         
-        {
+        if (ult::isFile(ult::OVERLAYS_INI_FILEPATH)) {
             // Read the entire INI file once
             auto iniData = ult::getParsedDataFromIniFile(ult::OVERLAYS_INI_FILEPATH);
             
