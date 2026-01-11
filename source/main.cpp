@@ -182,6 +182,8 @@ public:
         list->addItem(new tsl::elm::CategoryHeader("模式 " + ult::DIVIDER_SYMBOL + "按 \uE0E3 设置"));
 
         auto* Full = new tsl::elm::ListItem("完整显示");
+        Full->enableShortHoldKey();
+        Full->disableClickAnimation();
         Full->setClickListener([](uint64_t keys) {
             if (keys & KEY_A) {
                 lastMode = "full";
@@ -225,6 +227,8 @@ public:
         }
         if (fileExist) {
             auto* Mini = new tsl::elm::ListItem("迷你样式");
+            Mini->enableShortHoldKey();
+            Mini->disableClickAnimation();
             Mini->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
                     tsl::setNextOverlay(filepath, "-mini_");
@@ -243,6 +247,8 @@ public:
             list->addItem(Mini);
 
             auto* Micro = new tsl::elm::ListItem("微型样式");
+            Micro->enableShortHoldKey();
+            Micro->disableClickAnimation();
             Micro->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
                     tsl::setNextOverlay(filepath, "-micro_");
@@ -273,6 +279,8 @@ public:
             //list->addItem(Graphs);
 
             auto* comFPSGraph = new tsl::elm::ListItem("FPS 图表");
+            comFPSGraph->enableShortHoldKey();
+            comFPSGraph->disableClickAnimation();
             comFPSGraph->setClickListener([](uint64_t keys) {
                 //if (keys & KEY_A) {
                 //    tsl::elm::g_disableMenuCacheOnReturn.store(true, std::memory_order_release);
@@ -298,6 +306,8 @@ public:
             list->addItem(comFPSGraph);
 
             auto* comFPSCounter = new tsl::elm::ListItem("FPS 计数器");
+            comFPSCounter->enableShortHoldKey();
+            comFPSCounter->disableClickAnimation();
             comFPSCounter->setClickListener([](uint64_t keys) {
                 //if (keys & KEY_A) {
                 //    tsl::elm::g_disableMenuCacheOnReturn.store(true, std::memory_order_release);
@@ -323,6 +333,8 @@ public:
             list->addItem(comFPSCounter);
 
             auto* Res = new tsl::elm::ListItem("游戏分辨率");
+            Res->enableShortHoldKey();
+            Res->disableClickAnimation();
             Res->setClickListener([](uint64_t keys) {
                 //if (keys & KEY_A) {
                 //    tsl::elm::g_disableMenuCacheOnReturn.store(true, std::memory_order_release);
@@ -348,6 +360,7 @@ public:
 
         }
         auto* Other = new tsl::elm::ListItem("其它条目");
+        Other->disableClickAnimation();
         Other->setValue(ult::DROPDOWN_SYMBOL);
         Other->setClickListener([](uint64_t keys) {
             if (keys & KEY_A) {

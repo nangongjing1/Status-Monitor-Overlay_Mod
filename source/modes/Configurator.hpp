@@ -964,8 +964,9 @@ public:
         
         auto* handheldItem = new tsl::elm::ListItem("掌机模式字体大小");
         handheldItem->setValue(std::to_string(handheldSize) + " pt");
-        handheldItem->setClickListener([this](uint64_t keys) {
+        handheldItem->setClickListener([this, handheldItem](uint64_t keys) {
             if (keys & KEY_A) {
+                shiftItemFocus(handheldItem);
                 tsl::changeTo<FontSizeSelector>(modeName, "handheld");
                 return true;
             }
@@ -975,8 +976,9 @@ public:
         
         auto* dockedItem = new tsl::elm::ListItem("底座模式字体大小");
         dockedItem->setValue(std::to_string(dockedSize) + " pt");
-        dockedItem->setClickListener([this](uint64_t keys) {
+        dockedItem->setClickListener([this, dockedItem](uint64_t keys) {
             if (keys & KEY_A) {
+                shiftItemFocus(dockedItem);
                 tsl::changeTo<FontSizeSelector>(modeName, "docked");
                 return true;
             }
@@ -1361,8 +1363,9 @@ public:
             std::string bgCurrentColor = getCurrentColor("background_color", bgDefault);
             // Display color name instead of hex
             bgColor->setValue(getColorName(bgCurrentColor));
-            bgColor->setClickListener([this, bgDefault](uint64_t keys) {
+            bgColor->setClickListener([this, bgColor, bgDefault](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(bgColor);
                     tsl::changeTo<ColorSelector>(modeName, "背景颜色", "background_color", bgDefault);
                     return true;
                 }
@@ -1373,9 +1376,10 @@ public:
             // Background Alpha (new)
             auto* bgAlpha = new tsl::elm::ListItem("焦点透明度");
             bgAlpha->setValue(getAlphaPercentage(bgCurrentColor));
-            bgAlpha->setClickListener([this](uint64_t keys) {
+            bgAlpha->setClickListener([this, bgAlpha](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<AlphaSelector>(modeName, "background_color", "焦点透明度");
+                    shiftItemFocus(bgAlpha);
+                    tsl::changeTo<AlphaSelector>(modeName, "background_color", "背景透明度");
                     return true;
                 }
                 return false;
@@ -1387,8 +1391,9 @@ public:
                 auto* focusBgColor = new tsl::elm::ListItem("焦点颜色");
                 std::string focusCurrentColor = getCurrentColor("focus_background_color", "#000F");
                 focusBgColor->setValue(getColorName(focusCurrentColor));
-                focusBgColor->setClickListener([this](uint64_t keys) {
+                focusBgColor->setClickListener([this, focusBgColor](uint64_t keys) {
                     if (keys & KEY_A) {
+                        shiftItemFocus(focusBgColor);
                         tsl::changeTo<ColorSelector>(modeName, "焦点颜色", "focus_background_color", "#000F");
                         return true;
                     }
@@ -1399,8 +1404,9 @@ public:
                 // Focus Alpha (new)
                 auto* focusAlpha = new tsl::elm::ListItem("焦点透明度");
                 focusAlpha->setValue(getAlphaPercentage(focusCurrentColor));
-                focusAlpha->setClickListener([this](uint64_t keys) {
+                focusAlpha->setClickListener([this, focusAlpha](uint64_t keys) {
                     if (keys & KEY_A) {
+                        shiftItemFocus(focusAlpha);
                         tsl::changeTo<AlphaSelector>(modeName, "focus_background_color", "焦点透明度");
                         return true;
                     }
@@ -1415,8 +1421,9 @@ public:
         std::string textCurrentColor = getCurrentColor("text_color", "#FFFF");
         // Display color name for text colors
         textColor->setValue(getColorName(textCurrentColor));
-        textColor->setClickListener([this](uint64_t keys) {
+        textColor->setClickListener([this, textColor](uint64_t keys) {
             if (keys & KEY_A) {
+                shiftItemFocus(textColor);
                 tsl::changeTo<ColorSelector>(modeName, "文本颜色", "text_color", "#FFFF");
                 return true;
             }
@@ -1436,8 +1443,9 @@ public:
             // Game Resolutions: only category color (no separator)
             auto* catColor = new tsl::elm::ListItem("类别颜色");
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#0F0F")));
-            catColor->setClickListener([this](uint64_t keys) {
+            catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "Category Color", "cat_color", "#0F0F");
                     return true;
                 }
@@ -1468,8 +1476,9 @@ public:
                     colorItem->setValue(getColorName(currentVal));
                 }
                 
-                colorItem->setClickListener([this, color](uint64_t keys) {
+                colorItem->setClickListener([this, colorItem, color](uint64_t keys) {
                     if (keys & KEY_A) {
+                        shiftItemFocus(colorItem);
                         tsl::changeTo<ColorSelector>(modeName, color.name, color.key, color.defaultVal);
                         return true;
                     }
@@ -1481,9 +1490,10 @@ public:
                 if (color.isBackgroundType) {
                     auto* alphaItem = new tsl::elm::ListItem(color.name + "透明度");
                     alphaItem->setValue(getAlphaPercentage(currentVal));
-                    alphaItem->setClickListener([this, color](uint64_t keys) {
+                    alphaItem->setClickListener([this, alphaItem, color](uint64_t keys) {
                         if (keys & KEY_A) {
-                            tsl::changeTo<AlphaSelector>(modeName, color.key, color.name + "透明度");
+                            shiftItemFocus(alphaItem);
+                            tsl::changeTo<AlphaSelector>(modeName, color.key, color.name + " 透明度");
                             return true;
                         }
                         return false;
@@ -1496,9 +1506,10 @@ public:
             auto* catColor1 = new tsl::elm::ListItem("类别颜色 标题");
             // Display color name for category colors
             catColor1->setValue(getColorName(getCurrentColor("cat_color_1", "#8FFF")));
-            catColor1->setClickListener([this](uint64_t keys) {
+            catColor1->setClickListener([this, catColor1](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "标题类别颜色", "cat_color_1", "#8FFF");
+                    shiftItemFocus(catColor1);
+                    tsl::changeTo<ColorSelector>(modeName, "类别颜色 标题", "cat_color_1", "#8FFF");
                     return true;
                 }
                 return false;
@@ -1508,9 +1519,10 @@ public:
             auto* catColor2 = new tsl::elm::ListItem("类别颜色 文本");
             // Display color name for category colors
             catColor2->setValue(getColorName(getCurrentColor("cat_color_2", "#2DFF")));
-            catColor2->setClickListener([this](uint64_t keys) {
+            catColor2->setClickListener([this, catColor2](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::changeTo<ColorSelector>(modeName, "文本类别颜色", "cat_color_2", "#2DFF");
+                    shiftItemFocus(catColor2);
+                    tsl::changeTo<ColorSelector>(modeName, "类别颜色 文本", "cat_color_2", "#2DFF");
                     return true;
                 }
                 return false;
@@ -1520,8 +1532,9 @@ public:
             auto* sepColor = new tsl::elm::ListItem("分隔符颜色");
             // Display color name for separator colors
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
-            sepColor->setClickListener([this](uint64_t keys) {
+            sepColor->setClickListener([this, sepColor](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(sepColor);
                     tsl::changeTo<ColorSelector>(modeName, "分隔符颜色", "separator_color", "#888F");
                     return true;
                 }
@@ -1532,8 +1545,9 @@ public:
             auto* catColor = new tsl::elm::ListItem("文本颜色");
             // Display color name for category colors
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
-            catColor->setClickListener([this](uint64_t keys) {
+            catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
@@ -1544,8 +1558,9 @@ public:
             auto* sepColor = new tsl::elm::ListItem("分隔符颜色");
             // Display color name for separator colors
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
-            sepColor->setClickListener([this](uint64_t keys) {
+            sepColor->setClickListener([this, sepColor](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(sepColor);
                     tsl::changeTo<ColorSelector>(modeName, "分隔符颜色", "separator_color", "#888F");
                     return true;
                 }
@@ -1556,8 +1571,9 @@ public:
         } else if (isMicroMode) {
             auto* catColor = new tsl::elm::ListItem("文本颜色");
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
-            catColor->setClickListener([this](uint64_t keys) {
+            catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
@@ -1568,8 +1584,9 @@ public:
             // Micro mode: separator and category colors (no focus background like Mini)
             auto* sepColor = new tsl::elm::ListItem("分隔符颜色");
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
-            sepColor->setClickListener([this](uint64_t keys) {
+            sepColor->setClickListener([this, sepColor](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(sepColor);
                     tsl::changeTo<ColorSelector>(modeName, "分隔符颜色", "separator_color", "#888F");
                     return true;
                 }
@@ -1582,8 +1599,9 @@ public:
             // Game Resolutions: only category color (no separator)
             auto* catColor = new tsl::elm::ListItem("文本颜色");
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
-            catColor->setClickListener([this](uint64_t keys) {
+            catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
@@ -1732,6 +1750,8 @@ public:
             }
             
             auto* elementItem = new tsl::elm::ListItem(displayName);
+            elementItem->enableShortHoldKey();
+            elementItem->enableLongHoldKey();
             elementItem->setValue(isEnabled ? "开启" : "关闭", !isEnabled ? true : false);
             
             elementItem->setClickListener([this, elementItem, element, displayName](uint64_t keys) {
@@ -1889,8 +1909,9 @@ public:
         if (isMiniMode || isMicroMode) {
             auto* showSettings = new tsl::elm::ListItem("显示项目");
             showSettings->setValue(ult::DROPDOWN_SYMBOL);
-            showSettings->setClickListener([this](uint64_t keys) {
+            showSettings->setClickListener([this, showSettings](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(showSettings);
                     tsl::changeTo<ShowConfig>(modeName);
                     return true;
                 }
@@ -1903,8 +1924,9 @@ public:
         //if (isMiniMode || isMicroMode || isFullMode || isFPSGraphMode) {
         auto* toggles = new tsl::elm::ListItem("切换显示");
         toggles->setValue(ult::DROPDOWN_SYMBOL);
-        toggles->setClickListener([this](uint64_t keys) {
+        toggles->setClickListener([this, toggles](uint64_t keys) {
             if (keys & KEY_A) {
+                shiftItemFocus(toggles);
                 tsl::changeTo<TogglesConfig>(modeName);
                 return true;
             }
@@ -1917,8 +1939,9 @@ public:
         //if (!isFullMode) {
         auto* colors = new tsl::elm::ListItem("色彩设置");
         colors->setValue(ult::DROPDOWN_SYMBOL);
-        colors->setClickListener([this](uint64_t keys) {
+        colors->setClickListener([this, colors](uint64_t keys) {
             if (keys & KEY_A) {
+                shiftItemFocus(colors);
                 tsl::changeTo<ColorConfig>(modeName);
                 return true;
             }
@@ -1932,8 +1955,9 @@ public:
         if (isMiniMode || isMicroMode || isFPSCounterMode) {
             auto* fontSizes = new tsl::elm::ListItem("字体大小");
             fontSizes->setValue(ult::DROPDOWN_SYMBOL);
-            fontSizes->setClickListener([this](uint64_t keys) {
+            fontSizes->setClickListener([this, fontSizes](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(fontSizes);
                     tsl::changeTo<FontSizeConfig>(modeName);
                     return true;
                 }
@@ -1945,8 +1969,9 @@ public:
         // 1. Refresh Rate (all modes)
         auto* refreshRate = new tsl::elm::ListItem("刷新频率");
         refreshRate->setValue(std::to_string(getCurrentRefreshRate()) + " Hz");
-        refreshRate->setClickListener([this](uint64_t keys) {
+        refreshRate->setClickListener([this, refreshRate](uint64_t keys) {
             if (keys & KEY_A) {
+                shiftItemFocus(refreshRate);
                 tsl::changeTo<RefreshRateConfig>(modeName);
                 return true;
             }
@@ -1958,8 +1983,9 @@ public:
         if (isMiniMode || isMicroMode) {
             auto* dtcFormat = new tsl::elm::ListItem("时间显示");
             dtcFormat->setValue(getCurrentDTCFormat());
-            dtcFormat->setClickListener([this](uint64_t keys) {
+            dtcFormat->setClickListener([this, dtcFormat](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(dtcFormat);
                     tsl::changeTo<DTCFormatConfig>(modeName);
                     return true;
                 }
@@ -1972,8 +1998,9 @@ public:
         if (isMiniMode || isGameResolutionsMode || isFPSCounterMode || isFPSGraphMode) {
             auto* framePadding = new tsl::elm::ListItem("边框间距");
             framePadding->setValue(std::to_string(getCurrentFramePadding()) + " px");
-            framePadding->setClickListener([this](uint64_t keys) {
+            framePadding->setClickListener([this, framePadding](uint64_t keys) {
                 if (keys & KEY_A) {
+                    shiftItemFocus(framePadding);
                     tsl::changeTo<FramePaddingConfig>(modeName);
                     return true;
                 }
