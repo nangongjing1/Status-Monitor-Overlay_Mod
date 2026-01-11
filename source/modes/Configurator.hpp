@@ -1374,7 +1374,7 @@ public:
             list->addItem(bgColor);
             
             // Background Alpha (new)
-            auto* bgAlpha = new tsl::elm::ListItem("焦点透明度");
+            auto* bgAlpha = new tsl::elm::ListItem("背景透明度");
             bgAlpha->setValue(getAlphaPercentage(bgCurrentColor));
             bgAlpha->setClickListener([this, bgAlpha](uint64_t keys) {
                 if (keys & KEY_A) {
