@@ -184,6 +184,7 @@ public:
         list->addItem(new tsl::elm::CategoryHeader("Modes " + ult::DIVIDER_SYMBOL + " \uE0E3 Configure"));
 
         auto* Full = new tsl::elm::ListItem("Full");
+        Full->enableShortHoldKey();
         Full->disableClickAnimation();
         Full->setClickListener([](uint64_t keys) {
             if (keys & KEY_A) {
@@ -228,6 +229,7 @@ public:
         }
         if (fileExist) {
             auto* Mini = new tsl::elm::ListItem("Mini");
+            Mini->enableShortHoldKey();
             Mini->disableClickAnimation();
             Mini->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
@@ -247,6 +249,7 @@ public:
             list->addItem(Mini);
 
             auto* Micro = new tsl::elm::ListItem("Micro");
+            Micro->enableShortHoldKey();
             Micro->disableClickAnimation();
             Micro->setClickListener([](uint64_t keys) {
                 if (keys & KEY_A) {
@@ -278,6 +281,7 @@ public:
             //list->addItem(Graphs);
 
             auto* comFPSGraph = new tsl::elm::ListItem("FPS Graph");
+            comFPSGraph->enableShortHoldKey();
             comFPSGraph->disableClickAnimation();
             comFPSGraph->setClickListener([](uint64_t keys) {
                 //if (keys & KEY_A) {
@@ -304,6 +308,7 @@ public:
             list->addItem(comFPSGraph);
 
             auto* comFPSCounter = new tsl::elm::ListItem("FPS Counter");
+            comFPSCounter->enableShortHoldKey();
             comFPSCounter->disableClickAnimation();
             comFPSCounter->setClickListener([](uint64_t keys) {
                 //if (keys & KEY_A) {
@@ -330,6 +335,7 @@ public:
             list->addItem(comFPSCounter);
 
             auto* Res = new tsl::elm::ListItem("Game Resolutions");
+            Res->enableShortHoldKey();
             Res->disableClickAnimation();
             Res->setClickListener([](uint64_t keys) {
                 //if (keys & KEY_A) {
