@@ -45,6 +45,7 @@ class AlphaSelector;
 class ShowConfig;
 class TogglesConfig;
 class DTCFormatConfig;
+class ModeComboConfig;
 
 // Helper functions for color manipulation
 inline std::string extractColorWithoutAlpha(const std::string& rgba) {
@@ -68,6 +69,157 @@ inline std::string setAlphaInColor(const std::string& rgba, char alpha) {
         return result;
     }
     return rgba;
+}
+
+// =============================================================================
+// Mode Combo helpers
+//
+// Mirrors UltraGB's "Quick Combo" picker, but adapted to our 5-mode layout
+// (mode_args = "(-mini, -micro, -fps_graph, -fps_counter, -game_resolutions)"):
+// each mode owns a parallel slot in mode_combos, and the picker writes the
+// chosen combo into one slot while sweeping every other slot/key_combo across
+// overlays.ini and packages.ini that matches the same key set.
+//
+// "Default combo" = tsl::cfg::launchCombo (the Tesla open-menu combo).  We
+// hide it from the picker because reassigning it would lock the user out of
+// Tesla itself.
+// =============================================================================
+
+// Default combos available in the Mode Combo picker (lifted verbatim from
+// UltraGB's g_defaultCombos).
+static constexpr const char* const g_defaultModeCombos[] = {
+    "ZL+ZR+DDOWN",  "ZL+ZR+DRIGHT", "ZL+ZR+DUP",    "ZL+ZR+DLEFT",
+    "L+R+DDOWN",    "L+R+DRIGHT",   "L+R+DUP",       "L+R+DLEFT",
+    "L+DDOWN",      "R+DDOWN",
+    "ZL+ZR+PLUS",   "L+R+PLUS",     "ZL+ZR+MINUS",   "L+R+MINUS",
+    "ZL+MINUS",     "ZR+MINUS",     "ZL+PLUS",        "ZR+PLUS",    "MINUS+PLUS",
+    "LS+RS",        "L+DDOWN+RS",   "L+R+LS",         "L+R+RS",
+    "ZL+ZR+LS",     "ZL+ZR+RS",     "ZL+ZR+L",        "ZL+ZR+R",    "ZL+ZR+LS+RS"
+};
+
+// Number of mode_combos slots — must stay in lock-step with the mode_args /
+// mode_labels lists registered in main.cpp.
+static constexpr size_t kModeComboSlotCount = 5;
+
+// Map a configurator display name (the same string passed to
+// ConfiguratorOverlay) to its index in mode_args / mode_combos.  Returns -1
+// for modes that don't have a dedicated mode_args slot (e.g. "Full"), in
+// which case the picker won't be shown.
+inline int modeComboIndexFor(const std::string& modeName) {
+    if (modeName == "Mini")             return 0;
+    if (modeName == "Micro")            return 1;
+    if (modeName == "FPS Graph")        return 2;
+    if (modeName == "FPS Counter")      return 3;
+    if (modeName == "Game Resolutions") return 4;
+    return -1;
+}
+
+// Read mode_combos[modeIdx] from our own section in overlays.ini.  Returns
+// "" if the file/section/slot is missing — same treatment the picker uses to
+// mean "no combo assigned".
+inline std::string readModeCombo(int modeIdx) {
+    if (modeIdx < 0 || modeIdx >= static_cast<int>(kModeComboSlotCount)) return "";
+    if (filename.empty()) return "";
+    if (!ult::isFile(ult::OVERLAYS_INI_FILEPATH)) return "";
+
+    const std::string mc = ult::parseValueFromIniSection(
+        ult::OVERLAYS_INI_FILEPATH, filename, "mode_combos");
+    if (mc.empty()) return "";
+
+    auto slots = ult::splitIniList(mc);
+    if (modeIdx >= static_cast<int>(slots.size())) return "";
+    return slots[modeIdx];
+}
+
+// Sweep every overlay's key_combo and mode_combos slots, plus every package's
+// key_combo, blanking any entry whose canonical key set equals `keyCombo`.
+// Comparison goes through tsl::hlp::comboStringToKeys so e.g. "L+R+DDOWN" and
+// "DDOWN+R+L" compare equal.
+//
+// We do NOT skip our own section: the caller (writeModeCombo) overwrites the
+// target slot immediately after, so blanking duplicates inside our own
+// mode_combos is the correct deconfliction (only one of our 5 slots may hold
+// any given combo at a time).
+inline void removeModeComboFromOthers(const std::string& keyCombo) {
+    if (keyCombo.empty()) return;
+
+    const u64 targetKeys = tsl::hlp::comboStringToKeys(keyCombo);
+    if (targetKeys == 0) return;  // Unknown combo string — refuse to sweep.
+
+    // ── overlays.ini ──────────────────────────────────────────────────────
+    if (ult::isFile(ult::OVERLAYS_INI_FILEPATH)) {
+        auto data = ult::getParsedDataFromIniFile(ult::OVERLAYS_INI_FILEPATH);
+        bool dirty = false;
+
+        for (auto& [name, section] : data) {
+            // Blank any matching key_combo (overlay launch combo).
+            auto kcIt = section.find("key_combo");
+            if (kcIt != section.end() && !kcIt->second.empty() &&
+                tsl::hlp::comboStringToKeys(kcIt->second) == targetKeys) {
+                kcIt->second = "";
+                dirty = true;
+            }
+
+            // Blank any matching mode_combos slot.
+            auto mcIt = section.find("mode_combos");
+            if (mcIt != section.end() && !mcIt->second.empty()) {
+                auto slots = ult::splitIniList(mcIt->second);
+                bool changed = false;
+                for (auto& c : slots) {
+                    if (!c.empty() &&
+                        tsl::hlp::comboStringToKeys(c) == targetKeys) {
+                        c = "";
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    mcIt->second = "(" + ult::joinIniList(slots) + ")";
+                    dirty = true;
+                }
+            }
+        }
+
+        if (dirty)
+            ult::saveIniFileData(ult::OVERLAYS_INI_FILEPATH, data);
+    }
+
+    // ── packages.ini ──────────────────────────────────────────────────────
+    if (ult::isFile(ult::PACKAGES_INI_FILEPATH)) {
+        auto pkgData = ult::getParsedDataFromIniFile(ult::PACKAGES_INI_FILEPATH);
+        bool pkgDirty = false;
+        for (auto& [name, section] : pkgData) {
+            auto kcIt = section.find("key_combo");
+            if (kcIt != section.end() && !kcIt->second.empty() &&
+                tsl::hlp::comboStringToKeys(kcIt->second) == targetKeys) {
+                kcIt->second = "";
+                pkgDirty = true;
+            }
+        }
+        if (pkgDirty)
+            ult::saveIniFileData(ult::PACKAGES_INI_FILEPATH, pkgData);
+    }
+}
+
+// Write `combo` (or "" to clear) into our own mode_combos[modeIdx].  The
+// existing 5-slot list is padded with empties as needed so we never shrink
+// or shift other modes' slots.  Calls loadEntryKeyCombos() so Tesla picks up
+// the new mapping immediately without a relaunch.
+inline void writeModeCombo(int modeIdx, const std::string& combo) {
+    if (modeIdx < 0 || modeIdx >= static_cast<int>(kModeComboSlotCount)) return;
+    if (filename.empty()) return;
+
+    auto iniData = ult::getParsedDataFromIniFile(ult::OVERLAYS_INI_FILEPATH);
+    auto& section = iniData[filename];
+
+    auto slots = ult::splitIniList(section["mode_combos"]);
+    if (slots.size() < kModeComboSlotCount)
+        slots.resize(kModeComboSlotCount);  // pad with empty strings
+
+    slots[modeIdx] = combo;
+    section["mode_combos"] = "(" + ult::joinIniList(slots) + ")";
+
+    ult::saveIniFileData(ult::OVERLAYS_INI_FILEPATH, iniData);
+    tsl::hlp::loadEntryKeyCombos();
 }
 
 // Alpha Selector for background colors
@@ -164,8 +316,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             jumpItemName = title;
             jumpItemValue = "";
             jumpItemExactMatch = false;
@@ -269,8 +420,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             jumpItemName = "DTC Format";
             jumpItemValue = "";
             jumpItemExactMatch = false;
@@ -509,8 +659,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             tsl::goBack();
             return true;
         }
@@ -767,12 +916,129 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             jumpItemName = "Refresh Rate";
             jumpItemValue = "";
             jumpItemExactMatch = false;
             
+            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
+            return true;
+        }
+        return false;
+    }
+};
+
+// =============================================================================
+// Mode Combo Configuration
+//
+// Mirrors UltraGB's QuickCombo selector: header → "None" (clears the slot) →
+// the predefined g_defaultModeCombos list, each as a checkable ListItem with
+// the current selection marked.  Selecting an item calls
+// removeModeComboFromOthers() to deconflict (across overlays.ini key_combo +
+// mode_combos and packages.ini key_combo) before writeModeCombo() persists
+// the new value into our own mode_combos[modeIdx] slot.
+//
+// The Tesla launch combo (tsl::cfg::launchCombo) is filtered out of the
+// displayed list — reassigning it would lock the user out of Tesla.
+//
+// On B: returns to the ConfiguratorOverlay for this mode, with the cursor
+// jumping back to the "Mode Combo" item — same pattern as RefreshRateConfig.
+// =============================================================================
+class ModeComboConfig : public tsl::Gui {
+private:
+    std::string modeName;
+    int         modeIdx;        ///< Slot index in mode_combos (0..4); -1 if mode has no slot.
+    std::string currentCombo;   ///< Snapshot of mode_combos[modeIdx] taken at construction.
+
+public:
+    ModeComboConfig(const std::string& mode)
+        : modeName(mode)
+        , modeIdx(modeComboIndexFor(mode))
+        , currentCombo(readModeCombo(modeIdx))  // safe: modeIdx is declared first, so it's initialized first
+        {}
+
+    ~ModeComboConfig() {
+        lastSelectedListItem = nullptr;
+    }
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader("Mode Combo"));
+
+        // ── "None" — clears our slot without touching anyone else's combos.
+        {
+            auto* noneItem = new tsl::elm::ListItem(ult::OPTION_SYMBOL);
+            if (currentCombo.empty()) {
+                noneItem->setValue(ult::CHECKMARK_SYMBOL);
+                lastSelectedListItem = noneItem;
+            }
+            noneItem->setClickListener([this, noneItem](uint64_t keys) -> bool {
+                if (!(keys & KEY_A)) return false;
+                writeModeCombo(modeIdx, "");
+                currentCombo.clear();
+                if (lastSelectedListItem && noneItem != lastSelectedListItem)
+                    lastSelectedListItem->setValue("");
+                noneItem->setValue(ult::CHECKMARK_SYMBOL);
+                lastSelectedListItem = noneItem;
+                return true;
+            });
+            list->addItem(noneItem);
+        }
+
+        // ── Predefined combos.  Skip Tesla's launch combo (would brick the
+        //    open-menu gesture) and resolve canonical equality via comboKeys
+        //    so e.g. "L+R+DDOWN" and "DDOWN+L+R" don't appear as duplicates.
+        const u64 launchKeys  = tsl::cfg::launchCombo;
+        const u64 currentKeys = currentCombo.empty()
+            ? 0
+            : tsl::hlp::comboStringToKeys(currentCombo);
+
+        for (const auto& combo : g_defaultModeCombos) {
+            const u64 comboKeys = tsl::hlp::comboStringToKeys(combo);
+            if (comboKeys == launchKeys) continue;  // hide the default/launch combo
+
+            std::string display = combo;
+            ult::convertComboToUnicode(display);
+
+            auto* item = new tsl::elm::ListItem(display);
+            const bool isCurrent = (currentKeys != 0 && comboKeys == currentKeys);
+            if (isCurrent) {
+                item->setValue(ult::CHECKMARK_SYMBOL);
+                lastSelectedListItem = item;
+            }
+
+            const std::string comboStr(combo);  // capture by value for the lambda
+            item->setClickListener([this, item, comboStr](uint64_t keys) -> bool {
+                if (!(keys & KEY_A)) return false;
+                // Deconflict first, THEN write — mirrors UltraGB ordering so
+                // the new combo is the only surviving owner across both INIs.
+                removeModeComboFromOthers(comboStr);
+                writeModeCombo(modeIdx, comboStr);
+                currentCombo = comboStr;
+                if (lastSelectedListItem && item != lastSelectedListItem)
+                    lastSelectedListItem->setValue("");
+                item->setValue(ult::CHECKMARK_SYMBOL);
+                lastSelectedListItem = item;
+                return true;
+            });
+            list->addItem(item);
+        }
+
+        list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
+
+        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Configuration");
+        rootFrame->setContent(list);
+        return rootFrame;
+    }
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        if (keysDown & KEY_B) {
+            triggerExitFeedback();
+            jumpItemName = "Mode Combo";
+            jumpItemValue = "";
+            jumpItemExactMatch = false;
+
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -851,8 +1117,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             jumpItemName = "Frame Padding";
             jumpItemValue = "";
             jumpItemExactMatch = false;
@@ -939,8 +1204,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             jumpItemName = title;
             jumpItemValue = "";
             jumpItemExactMatch = false;
@@ -987,7 +1251,7 @@ public:
         handheldItem->setValue(std::to_string(handheldSize) + " pt");
         handheldItem->setClickListener([this, handheldItem](uint64_t keys) {
             if (keys & KEY_A) {
-                tsl::shiftItemFocus(handheldItem);
+                //tsl::shiftItemFocus(handheldItem);
                 tsl::changeTo<FontSizeSelector>(modeName, "handheld");
                 return true;
             }
@@ -999,7 +1263,7 @@ public:
         dockedItem->setValue(std::to_string(dockedSize) + " pt");
         dockedItem->setClickListener([this, dockedItem](uint64_t keys) {
             if (keys & KEY_A) {
-                tsl::shiftItemFocus(dockedItem);
+                //tsl::shiftItemFocus(dockedItem);
                 tsl::changeTo<FontSizeSelector>(modeName, "docked");
                 return true;
             }
@@ -1020,8 +1284,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             tsl::goBack();
             return true;
         }
@@ -1226,8 +1489,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             jumpItemName = modeTitle;
             jumpItemValue = "";
             jumpItemExactMatch = false;
@@ -1386,7 +1648,7 @@ public:
             bgColor->setValue(getColorName(bgCurrentColor));
             bgColor->setClickListener([this, bgColor, bgDefault](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(bgColor);
+                    //tsl::shiftItemFocus(bgColor);
                     tsl::changeTo<ColorSelector>(modeName, "背景颜色", "background_color", bgDefault);
                     return true;
                 }
@@ -1399,7 +1661,7 @@ public:
             bgAlpha->setValue(getAlphaPercentage(bgCurrentColor));
             bgAlpha->setClickListener([this, bgAlpha](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(bgAlpha);
+                    //tsl::shiftItemFocus(bgAlpha);
                     tsl::changeTo<AlphaSelector>(modeName, "background_color", "背景透明度");
                     return true;
                 }
@@ -1414,7 +1676,7 @@ public:
                 focusBgColor->setValue(getColorName(focusCurrentColor));
                 focusBgColor->setClickListener([this, focusBgColor](uint64_t keys) {
                     if (keys & KEY_A) {
-                        tsl::shiftItemFocus(focusBgColor);
+                        //tsl::shiftItemFocus(focusBgColor);
                         tsl::changeTo<ColorSelector>(modeName, "焦点颜色", "focus_background_color", "#000F");
                         return true;
                     }
@@ -1427,7 +1689,7 @@ public:
                 focusAlpha->setValue(getAlphaPercentage(focusCurrentColor));
                 focusAlpha->setClickListener([this, focusAlpha](uint64_t keys) {
                     if (keys & KEY_A) {
-                        tsl::shiftItemFocus(focusAlpha);
+                        //tsl::shiftItemFocus(focusAlpha);
                         tsl::changeTo<AlphaSelector>(modeName, "focus_background_color", "焦点透明度");
                         return true;
                     }
@@ -1444,7 +1706,7 @@ public:
         textColor->setValue(getColorName(textCurrentColor));
         textColor->setClickListener([this, textColor](uint64_t keys) {
             if (keys & KEY_A) {
-                tsl::shiftItemFocus(textColor);
+                //tsl::shiftItemFocus(textColor);
                 tsl::changeTo<ColorSelector>(modeName, "文本颜色", "text_color", "#FFFF");
                 return true;
             }
@@ -1466,7 +1728,7 @@ public:
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#0F0F")));
             catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(catColor);
+                    //tsl::shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "Category Color", "cat_color", "#0F0F");
                     return true;
                 }
@@ -1499,7 +1761,7 @@ public:
                 
                 colorItem->setClickListener([this, colorItem, color](uint64_t keys) {
                     if (keys & KEY_A) {
-                        tsl::shiftItemFocus(colorItem);
+                        //tsl::shiftItemFocus(colorItem);
                         tsl::changeTo<ColorSelector>(modeName, color.name, color.key, color.defaultVal);
                         return true;
                     }
@@ -1513,7 +1775,7 @@ public:
                     alphaItem->setValue(getAlphaPercentage(currentVal));
                     alphaItem->setClickListener([this, alphaItem, color](uint64_t keys) {
                         if (keys & KEY_A) {
-                            tsl::shiftItemFocus(alphaItem);
+                            //tsl::shiftItemFocus(alphaItem);
                             tsl::changeTo<AlphaSelector>(modeName, color.key, color.name + " 透明度");
                             return true;
                         }
@@ -1529,7 +1791,7 @@ public:
             catColor1->setValue(getColorName(getCurrentColor("cat_color_1", "#8FFF")));
             catColor1->setClickListener([this, catColor1](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(catColor1);
+                    //tsl::shiftItemFocus(catColor1);
                     tsl::changeTo<ColorSelector>(modeName, "类别颜色 标题", "cat_color_1", "#8FFF");
                     return true;
                 }
@@ -1542,7 +1804,7 @@ public:
             catColor2->setValue(getColorName(getCurrentColor("cat_color_2", "#2DFF")));
             catColor2->setClickListener([this, catColor2](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(catColor2);
+                    //tsl::shiftItemFocus(catColor2);
                     tsl::changeTo<ColorSelector>(modeName, "类别颜色 文本", "cat_color_2", "#2DFF");
                     return true;
                 }
@@ -1555,7 +1817,7 @@ public:
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
             sepColor->setClickListener([this, sepColor](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(sepColor);
+                    //tsl::shiftItemFocus(sepColor);
                     tsl::changeTo<ColorSelector>(modeName, "分隔符颜色", "separator_color", "#888F");
                     return true;
                 }
@@ -1568,7 +1830,7 @@ public:
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
             catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(catColor);
+                    //tsl::shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
@@ -1581,7 +1843,7 @@ public:
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
             sepColor->setClickListener([this, sepColor](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(sepColor);
+                    //tsl::shiftItemFocus(sepColor);
                     tsl::changeTo<ColorSelector>(modeName, "分隔符颜色", "separator_color", "#888F");
                     return true;
                 }
@@ -1594,7 +1856,7 @@ public:
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
             catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(catColor);
+                    //tsl::shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
@@ -1607,7 +1869,7 @@ public:
             sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
             sepColor->setClickListener([this, sepColor](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(sepColor);
+                    //tsl::shiftItemFocus(sepColor);
                     tsl::changeTo<ColorSelector>(modeName, "分隔符颜色", "separator_color", "#888F");
                     return true;
                 }
@@ -1622,7 +1884,7 @@ public:
             catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
             catColor->setClickListener([this, catColor](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(catColor);
+                    //tsl::shiftItemFocus(catColor);
                     tsl::changeTo<ColorSelector>(modeName, "文本颜色", "cat_color", "#2DFF");
                     return true;
                 }
@@ -1648,8 +1910,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             tsl::goBack();
             return true;
         }
@@ -1820,8 +2081,7 @@ public:
                             }
                             elementOrder[elementOrder.size() - 1] = temp;
                         }
-                        triggerRumbleClick.store(true, std::memory_order_release);
-                        triggerMoveSound.store(true, std::memory_order_release);
+                        triggerMoveFeedback();
                     } else if (keys & KEY_Y) {
                         if (currentPos < elementOrder.size() - 1) {
                             std::swap(elementOrder[currentPos], elementOrder[currentPos + 1]);
@@ -1832,8 +2092,7 @@ public:
                             }
                             elementOrder[0] = temp;
                         }
-                        triggerRumbleClick.store(true, std::memory_order_release);
-                        triggerMoveSound.store(true, std::memory_order_release);
+                        triggerMoveFeedback();
                     }
                     
                     updateShowAndOrder();
@@ -1864,8 +2123,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             tsl::goBack();
             return true;
         }
@@ -1932,7 +2190,7 @@ public:
             showSettings->setValue(ult::DROPDOWN_SYMBOL);
             showSettings->setClickListener([this, showSettings](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(showSettings);
+                    //tsl::shiftItemFocus(showSettings);
                     tsl::changeTo<ShowConfig>(modeName);
                     return true;
                 }
@@ -1947,7 +2205,7 @@ public:
         toggles->setValue(ult::DROPDOWN_SYMBOL);
         toggles->setClickListener([this, toggles](uint64_t keys) {
             if (keys & KEY_A) {
-                tsl::shiftItemFocus(toggles);
+                //tsl::shiftItemFocus(toggles);
                 tsl::changeTo<TogglesConfig>(modeName);
                 return true;
             }
@@ -1962,7 +2220,7 @@ public:
         colors->setValue(ult::DROPDOWN_SYMBOL);
         colors->setClickListener([this, colors](uint64_t keys) {
             if (keys & KEY_A) {
-                tsl::shiftItemFocus(colors);
+                //tsl::shiftItemFocus(colors);
                 tsl::changeTo<ColorConfig>(modeName);
                 return true;
             }
@@ -1978,7 +2236,7 @@ public:
             fontSizes->setValue(ult::DROPDOWN_SYMBOL);
             fontSizes->setClickListener([this, fontSizes](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(fontSizes);
+                    //tsl::shiftItemFocus(fontSizes);
                     tsl::changeTo<FontSizeConfig>(modeName);
                     return true;
                 }
@@ -1992,7 +2250,7 @@ public:
         refreshRate->setValue(std::to_string(getCurrentRefreshRate()) + " Hz");
         refreshRate->setClickListener([this, refreshRate](uint64_t keys) {
             if (keys & KEY_A) {
-                tsl::shiftItemFocus(refreshRate);
+                //tsl::shiftItemFocus(refreshRate);
                 tsl::changeTo<RefreshRateConfig>(modeName);
                 return true;
             }
@@ -2006,7 +2264,7 @@ public:
             dtcFormat->setValue(getCurrentDTCFormat());
             dtcFormat->setClickListener([this, dtcFormat](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(dtcFormat);
+                    //tsl::shiftItemFocus(dtcFormat);
                     tsl::changeTo<DTCFormatConfig>(modeName);
                     return true;
                 }
@@ -2021,7 +2279,7 @@ public:
             framePadding->setValue(std::to_string(getCurrentFramePadding()) + " px");
             framePadding->setClickListener([this, framePadding](uint64_t keys) {
                 if (keys & KEY_A) {
-                    tsl::shiftItemFocus(framePadding);
+                    //tsl::shiftItemFocus(framePadding);
                     tsl::changeTo<FramePaddingConfig>(modeName);
                     return true;
                 }
@@ -2111,6 +2369,33 @@ public:
         //    list->addItem(layerPosV);
         }
         
+        // ── Mode Combo (Mini/Micro/FPS Graph/FPS Counter/Game Resolutions) ─
+        // Picker for the Ultrahand mode_combos slot owned by this mode.
+        // Skipped for "Full" because it has no entry in mode_args.  Shows the
+        // current combo as unicode button glyphs (or OPTION_SYMBOL when none),
+        // identical UX to UltraGB's Quick Combo.
+        {
+            const int slotIdx = modeComboIndexFor(modeName);
+            if (slotIdx >= 0) {
+                std::string comboDisplay = readModeCombo(slotIdx);
+                if (comboDisplay.empty()) {
+                    comboDisplay = ult::OPTION_SYMBOL;
+                } else {
+                    ult::convertComboToUnicode(comboDisplay);
+                }
+
+                auto* modeCombo = new tsl::elm::ListItem("Mode Combo", comboDisplay);
+                modeCombo->setClickListener([this, modeCombo](uint64_t keys) {
+                    if (keys & KEY_A) {
+                        tsl::changeTo<ModeComboConfig>(modeName);
+                        return true;
+                    }
+                    return false;
+                });
+                list->addItem(modeCombo);
+            }
+        }
+        
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch.load(std::memory_order_acquire));
         {
             jumpItemName = "";
@@ -2125,8 +2410,7 @@ public:
     
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
-            triggerRumbleDoubleClick.store(true, std::memory_order_release);
-            triggerExitSound.store(true, std::memory_order_release);
+            triggerExitFeedback();
             lastSelectedItem = modeName;
             tsl::swapTo<MainMenu>();
             return true;
