@@ -963,7 +963,7 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Mode Combo"));
+        list->addItem(new tsl::elm::CategoryHeader("快捷键"));
 
         // ── "None" — clears our slot without touching anyone else's combos.
         {
@@ -2384,7 +2384,7 @@ public:
                     ult::convertComboToUnicode(comboDisplay);
                 }
 
-                auto* modeCombo = new tsl::elm::ListItem("Mode Combo", comboDisplay);
+                auto* modeCombo = new tsl::elm::ListItem("快捷键", comboDisplay);
                 modeCombo->setClickListener([this, modeCombo](uint64_t keys) {
                     if (keys & KEY_A) {
                         tsl::changeTo<ModeComboConfig>(modeName);
