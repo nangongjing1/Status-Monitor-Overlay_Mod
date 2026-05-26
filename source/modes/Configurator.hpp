@@ -428,7 +428,7 @@ public:
 
         const std::string section = modeToSection(modeName);
         std::string currentColor = ult::parseValueFromIniSection(configIniPath, section, colorKey);
-        if (currentColor.empty()) currentColor = "#0009";
+        if (currentColor.empty()) currentColor = "#000B";
         const std::string currentAlpha = extractAlphaFromColor(currentColor);
 
         static const std::pair<std::string, char> alphaOptions[16] = {
@@ -445,7 +445,7 @@ public:
             alphaItem->setClickListener([this, alphaItem, option, section](uint64_t keys) {
                 if (keys & KEY_A) {
                     std::string color = ult::parseValueFromIniSection(configIniPath, section, colorKey);
-                    if (color.empty()) color = "#0009";
+                    if (color.empty()) color = "#000B";
                     ult::setIniFileValue(configIniPath, section, colorKey, setAlphaInColor(color, option.second));
                     selectItem(lastSelectedListItem, alphaItem, ult::CHECKMARK_SYMBOL);
                     return true;
@@ -541,12 +541,12 @@ public:
         const std::string section = modeToSection(modeName);
         const std::string iniKey  = (slot == 2) ? "dtc_format_2" : "dtc_format_1";
         const std::string title   = (slot == 2) ? "时间格式 2" : "时间格式 1";
-        const bool isMiniMode     = (modeName == "Mini");
+        //const bool isMiniMode     = (modeName == "Mini");
 
         std::string currentValue = ult::parseValueFromIniSection(configIniPath, section, iniKey);
         if (currentValue.empty()) {
-            if (slot == 1) currentValue = isMiniMode ? std::string("%a, %b %d") : std::string("%H:%M");
-            else           currentValue = isMiniMode ? std::string("%I:%M %p")  : ult::OPTION_SYMBOL;
+            if (slot == 1) currentValue = std::string("%a, %b %d");
+            else           currentValue = std::string("%l:%M:%S %p");
         }
 
         if (slot == 2) {
@@ -1347,17 +1347,17 @@ public:
         list->addItem(new tsl::elm::CategoryHeader("颜色"));
 
         if (!flags.isFull) {
-            addColorWithAlpha(list, "背景颜色", "background_color",       "#0009", "背景透明度");
+            addColorWithAlpha(list, "背景颜色", "background_color",       "#000B", "背景透明度");
             if (flags.isMini || flags.isMicro || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes)
                 addColorWithAlpha(list, "焦点颜色",  "focus_background_color", "#000F", "焦点透明度");
         } else {
-            addColorWithAlpha(list, "背景颜色", "background_color",       "#0009", "背景透明度");
+            addColorWithAlpha(list, "背景颜色", "background_color",       "#000B", "背景透明度");
         }
 
         addColorItem(list, "文字颜色", "text_color", "#FFFF");
 
         if (flags.isFPSGraph) {
-            addColorItem(list, "分类颜色", "cat_color", "#0F0F");
+            addColorItem(list, "分类颜色", "cat_color", "#2DFF");
 
             struct FPSGraphColorSetting {
                 const char* name; const char* key; const char* def; bool hasAlpha;
@@ -1644,8 +1644,8 @@ private:
                 else
                     value = (slot == 1) ? legacy : ult::OPTION_SYMBOL;
             } else {
-                if (slot == 1) value = flags.isMini ? std::string("%a, %b %d") : std::string("%H:%M");
-                else           value = flags.isMini ? std::string("%I:%M %p")  : ult::OPTION_SYMBOL;
+                if (slot == 1) value = std::string("%a, %b %d");
+                else           value = std::string("%l:%M:%S %p");
             }
         }
         return getDTCFormatName(value);

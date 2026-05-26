@@ -233,6 +233,13 @@ public:
         cachedBaselineOffset = (int)fontsize;  // updated to true ascent once font is loaded
         cachedDescentAbs     = 0;              // updated to true descent once font is loaded
 
+        // Clamp frameOffsetY so the first updateLayerPos() call already places the layer
+        // at the correct Y. Without this, a frameOffsetY of 0 causes the layer/content
+        // to draw at Y=0 on the very first frame before the draw-path clamp runs.
+        // The minimum valid Y is framePadding in all modes (limited 1080p uses a looser
+        // logical-space minimum, but framePadding is always a safe lower bound).
+        if (frameOffsetY < (int)framePadding) frameOffsetY = (int)framePadding;
+
         //if (ult::limitedMemory) {
         //    tsl::gfx::Renderer::get().setLayerPos(std::max(std::min((int)(frameOffsetX*1.5 + 0.5) - tsl::impl::currentUnderscanPixels.first, 1280-32 - tsl::impl::currentUnderscanPixels.first), 0), 0);
         //}
@@ -851,12 +858,12 @@ public:
                         else
                             if (settings.showSOCVoltage) {
                                 if (settings.showFanPercentage)
-                                    width = renderer->getTextDimensions("88°C 100%444 mV", false, fontsize).first;
+                                    width = renderer->getTextDimensions("88°C 100%444 mV", false, fontsize).first;
                                 else
                                     width = renderer->getTextDimensions("88°C444 mV", false, fontsize).first;
                             } else {
                                 if (settings.showFanPercentage)
-                                    width = renderer->getTextDimensions("88°C 100%", false, fontsize).first;
+                                    width = renderer->getTextDimensions("88°C 100%", false, fontsize).first;
                                 else
                                     width = renderer->getTextDimensions("88°C", false, fontsize).first;
                             }
@@ -864,14 +871,14 @@ public:
                         //dimensions = renderer->drawString("88.8\u210388.8\u210388.8\u2103 (100%)", false, 0, 0, fontsize, renderer->a(0x0000));
                         if (!settings.realVolts) {
                             if (settings.showFanPercentage)
-                                width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103 100%", false, fontsize).first;
+                                width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103 100%", false, fontsize).first;
                             else
                                 width = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103", false, fontsize).first;
                         } else if (settings.showStackedFanSOC &&
                                    settings.showFanPercentage &&
                                    settings.showSOCVoltage) {
                             // Split mode: fan on row 1, SOC volt on row 2 — width = max of both rows
-                            const uint32_t splitRow1 = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103 100%", false, fontsize).first;
+                            const uint32_t splitRow1 = renderer->getTextDimensions("88\u2103 88\u2103 88\u2103 100%", false, fontsize).first;
                             const bool bothGroups = settings.showComponentTemps && settings.showSocPcbSkinTemps;
                             const uint32_t splitRow2 = bothGroups
                                 ? renderer->getTextDimensions("88\u2103 88\u2103 88\u2103444 mV", false, fontsize).first
@@ -1648,7 +1655,7 @@ public:
                             // Render remaining text: separator in separatorColor, fan icon in catColor
                             if (!restPart.empty()) {
                                 currentX += renderer->getTextDimensions(tempPart, false, fontsize).first;
-                                static const std::string socFanIcon = "";
+                                static const std::string socFanIcon = "";
                                 const size_t fanPos = restPart.find(socFanIcon);
                                 if (fanPos != std::string::npos) {
                                     // Before fan icon: separator char -> separatorColor
@@ -1735,7 +1742,7 @@ public:
                             const std::string afterDiv1 = restPart.substr(div1Pos + divLen);
                             // Fan only (volt drawn explicitly), fan icon in catColor
                             if (!afterDiv1.empty()) {
-                                static const std::vector<std::string> tmpFanIconChars = {""};
+                                static const std::vector<std::string> tmpFanIconChars = {""};
                                 currentX += renderer->drawStringWithColoredSections(afterDiv1, false, tmpFanIconChars,
                                     currentX, baseY, fontsize, settings.textColor, settings.catColor).first;
                             }
@@ -1826,8 +1833,8 @@ public:
                         if (settings.showFanPercentage) {
                             const int fanDuty = safeFanDuty((int)Rotation_Duty);
                             char fanPctStr[24];
-                            snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                            static const std::vector<std::string> fanIconChars = {""};
+                            snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
+                            static const std::vector<std::string> fanIconChars = {""};
                             renderer->drawStringWithColoredSections(std::string(fanPctStr), false, fanIconChars,
                                 afterContentX, fanY, fontsize, settings.textColor, settings.catColor);
                             afterContentX += (int)renderer->getTextDimensions(std::string(fanPctStr), false, fontsize).first;
@@ -1919,8 +1926,8 @@ public:
                         const int afterDivX = afterFanX + renderer->drawString(
                             ult::DIVIDER_SYMBOL, false, afterFanX, fanY, fontsize, settings.separatorColor).first;
                         char fanPctStr[24];
-                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                        static const std::vector<std::string> compFanIconChars = {""};
+                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
+                        static const std::vector<std::string> compFanIconChars = {""};
                         renderer->drawStringWithColoredSections(std::string(fanPctStr), false, compFanIconChars,
                             afterDivX, fanY, fontsize, settings.textColor, settings.catColor);
                         afterFanX = afterDivX + (int)renderer->getTextDimensions(std::string(fanPctStr), false, fontsize).first;
@@ -3256,8 +3263,8 @@ public:
                                 fontsize, settings.separatorColor).first;
                         }
                         char fanPctStr[24];
-                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                        static const std::vector<std::string> sfanIconChars = {""};
+                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
+                        static const std::vector<std::string> sfanIconChars = {""};
                         renderer->drawStringWithColoredSections(std::string(fanPctStr), false, sfanIconChars,
                             afterDivX, fanDrawY, fontsize, settings.textColor, settings.catColor);
                     }
@@ -3989,7 +3996,7 @@ public:
             if (isActive("SOC")) {
                 if (settings.showFanPercentage) {
                     snprintf(soc_temperature_c, sizeof(soc_temperature_c),
-                             "%d°C %d%%", (int)SOC_temperatureF, duty);
+                             "%d°C %d%%", (int)SOC_temperatureF, duty);
                 } else {
                     snprintf(soc_temperature_c, sizeof(soc_temperature_c),
                              "%d°C", (int)SOC_temperatureF);
