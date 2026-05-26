@@ -1301,7 +1301,7 @@ public:
                                     ax += renderer->drawString(restPart.substr(0, dv + dl), false, ax, singleItemY, fontsize, (settings.separatorColor)).first;
                                     const std::string ad = restPart.substr(dv + dl);
                                     if (!ad.empty()) {
-                                        static const std::vector<std::string> fic = {""};
+                                        static const std::vector<std::string> fic = {""};
                                         renderer->drawStringWithColoredSections(ad, false, fic, ax, singleItemY, fontsize, textColorA, catColorA);
                                     }
                                 } else {
@@ -1378,7 +1378,7 @@ public:
                             fanColX = rx; // mark where fan column starts -- divider+fan drawn below by fan row section
                             if (!rOK) {
                                 {
-                                    static const std::string socFanIcon_ = "";
+                                    static const std::string socFanIcon_ = "";
                                     const std::string socStr_(skin_temperature_c);
                                     const size_t fanPos_ = socStr_.find(socFanIcon_);
                                     uint32_t cx_ = current_x;
@@ -1449,8 +1449,8 @@ public:
                             {
                                 const int tmpFanDuty = safeFanDuty((int)Rotation_Duty);
                                 char tmpFanPctStr[24];
-                                snprintf(tmpFanPctStr, sizeof(tmpFanPctStr), " %d%%", tmpFanDuty);
-                                static const std::vector<std::string> tmpFanFic = {""};
+                                snprintf(tmpFanPctStr, sizeof(tmpFanPctStr), " %d%%", tmpFanDuty);
+                                static const std::vector<std::string> tmpFanFic = {""};
                                 renderer->drawStringWithColoredSections(std::string(tmpFanPctStr), false, tmpFanFic,
                                     fanColX + tmpDivW, fanDrawY, fontsize, textColorA, catColorA);
                             }
@@ -1573,7 +1573,7 @@ public:
                                         rx += renderer->drawString(ult::DIVIDER_SYMBOL, false, rx, singleItemY, fontsize, (settings.separatorColor)).first;
                                     }
                                     if (!ad.empty()) {
-                                        static const std::vector<std::string> fic2 = {""};
+                                        static const std::vector<std::string> fic2 = {""};
                                         renderer->drawStringWithColoredSections(ad, false, fic2, rx, singleItemY, fontsize, textColorA, catColorA);
                                         rx += renderer->getTextDimensions(ad, false, fontsize).first;
                                     }
@@ -1587,7 +1587,7 @@ public:
                                 }
                             }
                             if (!rOK) {
-                            static const std::string socFanIcon2_ = "";
+                            static const std::string socFanIcon2_ = "";
                             const std::string socStr2_(skin_temperature_c);
                             const size_t fanPos2_ = socStr2_.find(socFanIcon2_);
                             uint32_t cx2_ = current_x;
@@ -1665,7 +1665,7 @@ public:
                                     renderX += renderer->drawString(restPart.substr(0, divPos2 + dl), false, renderX, singleItemY, fontsize, (settings.separatorColor)).first;
                                     const std::string afterDiv = restPart.substr(divPos2 + dl);
                                     if (!afterDiv.empty()) {
-                                        static const std::vector<std::string> fic3 = {""};
+                                        static const std::vector<std::string> fic3 = {""};
                                         renderer->drawStringWithColoredSections(afterDiv, false, fic3, renderX, singleItemY, fontsize, textColorA, catColorA);
                                         renderX += renderer->getTextDimensions(afterDiv, false, fontsize).first;
                                     }

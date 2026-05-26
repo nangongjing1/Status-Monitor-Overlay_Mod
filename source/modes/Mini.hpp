@@ -1655,7 +1655,7 @@ public:
                             // Render remaining text: separator in separatorColor, fan icon in catColor
                             if (!restPart.empty()) {
                                 currentX += renderer->getTextDimensions(tempPart, false, fontsize).first;
-                                static const std::string socFanIcon = "";
+                                static const std::string socFanIcon = "";
                                 const size_t fanPos = restPart.find(socFanIcon);
                                 if (fanPos != std::string::npos) {
                                     // Before fan icon: separator char -> separatorColor
@@ -1742,7 +1742,7 @@ public:
                             const std::string afterDiv1 = restPart.substr(div1Pos + divLen);
                             // Fan only (volt drawn explicitly), fan icon in catColor
                             if (!afterDiv1.empty()) {
-                                static const std::vector<std::string> tmpFanIconChars = {""};
+                                static const std::vector<std::string> tmpFanIconChars = {""};
                                 currentX += renderer->drawStringWithColoredSections(afterDiv1, false, tmpFanIconChars,
                                     currentX, baseY, fontsize, settings.textColor, settings.catColor).first;
                             }
@@ -1833,8 +1833,8 @@ public:
                         if (settings.showFanPercentage) {
                             const int fanDuty = safeFanDuty((int)Rotation_Duty);
                             char fanPctStr[24];
-                            snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                            static const std::vector<std::string> fanIconChars = {""};
+                            snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
+                            static const std::vector<std::string> fanIconChars = {""};
                             renderer->drawStringWithColoredSections(std::string(fanPctStr), false, fanIconChars,
                                 afterContentX, fanY, fontsize, settings.textColor, settings.catColor);
                             afterContentX += (int)renderer->getTextDimensions(std::string(fanPctStr), false, fontsize).first;
@@ -1926,8 +1926,8 @@ public:
                         const int afterDivX = afterFanX + renderer->drawString(
                             ult::DIVIDER_SYMBOL, false, afterFanX, fanY, fontsize, settings.separatorColor).first;
                         char fanPctStr[24];
-                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                        static const std::vector<std::string> compFanIconChars = {""};
+                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
+                        static const std::vector<std::string> compFanIconChars = {""};
                         renderer->drawStringWithColoredSections(std::string(fanPctStr), false, compFanIconChars,
                             afterDivX, fanY, fontsize, settings.textColor, settings.catColor);
                         afterFanX = afterDivX + (int)renderer->getTextDimensions(std::string(fanPctStr), false, fontsize).first;
@@ -3263,8 +3263,8 @@ public:
                                 fontsize, settings.separatorColor).first;
                         }
                         char fanPctStr[24];
-                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                        static const std::vector<std::string> sfanIconChars = {""};
+                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
+                        static const std::vector<std::string> sfanIconChars = {""};
                         renderer->drawStringWithColoredSections(std::string(fanPctStr), false, sfanIconChars,
                             afterDivX, fanDrawY, fontsize, settings.textColor, settings.catColor);
                     }
