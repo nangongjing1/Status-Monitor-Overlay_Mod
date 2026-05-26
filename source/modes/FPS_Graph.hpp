@@ -7,6 +7,7 @@ private:
     FpsGraphSettings settings;
     uint64_t systemtickfrequency_impl = systemtickfrequency;
     uint32_t cnt = 0;
+    u64 lastDataUpdateTick = 0;
     char CPU_Load_c[12] = "    -";
     char GPU_Load_c[12] = "    -";
     char RAM_Load_c[12] = "    -";
@@ -29,6 +30,7 @@ private:
 
     struct ButtonState {
         std::atomic<bool> plusDragActive{false};
+        std::atomic<bool> touchDragActive{false};
     } buttonState;
 
     Thread touchPollThread;
@@ -100,15 +102,21 @@ public:
             padInitialize(&pad_handheld, HidNpadIdType_Handheld);
 
             u64 plusHoldStart = 0;
-            static constexpr u64 HOLD_THRESHOLD_NS = 500'000'000ULL;
+            u64 touchHoldStart = 0;
+            static constexpr u64 TOUCH_HOLD_THRESHOLD_NS = 500'000'000ULL;  // 500ms
+            static constexpr u64 PLUS_HOLD_THRESHOLD_NS  = 1'000'000'000ULL; // 1s
         
             HidTouchScreenState state = {0};
             bool inputDetected;
         
             while (overlay->touchPollRunning.load(std::memory_order_acquire)) {
+                // Sleep gate: touch panel is off during sleep — block until wake.
+                if (tsl::hlp::waitWhileSleeping()) continue;
+
                 // Only poll when rendering and not dragging
                 {
                     inputDetected = false;
+                    const u64 now = armTicksToNs(armGetSystemTick());
                     
                     // Check touch in bounds
                     if (hidGetTouchScreenStates(&state, 1) && state.count > 0) {
@@ -129,9 +137,10 @@ public:
                             totalHeight = content_height + (2 * border);
                         }
                         
-                        // Apply frame offsets (base position already includes border offset)
-                        const int overlayX = overlay->base_x + overlay->frameOffsetX - border;
-                        const int overlayY = overlay->base_y + overlay->frameOffsetY - border;
+                        // Apply frame offsets — in limitedMemory the layer slides to frameOffsetX,
+                        // so the overlay's logical screen position IS frameOffsetX/frameOffsetY.
+                        const int overlayX = overlay->base_x + overlay->frameOffsetX;
+                        const int overlayY = overlay->base_y + overlay->frameOffsetY;
                         
                         // Touch padding
                         const int touchPadding = 4;
@@ -140,11 +149,28 @@ public:
                         const int touchableWidth = totalWidth + (touchPadding * 2);
                         const int touchableHeight = totalHeight + (touchPadding * 2);
                         
-                        // Check if touch is within bounds
+                        // Check if touch is within bounds — 500ms hold required
                         if (touchX >= touchableX && touchX <= touchableX + touchableWidth &&
                             touchY >= touchableY && touchY <= touchableY + touchableHeight) {
-                            inputDetected = true;
+                            if (overlay->buttonState.touchDragActive.load(std::memory_order_acquire)) {
+                                // Drag already confirmed — keep input signalled
+                                inputDetected = true;
+                            } else {
+                                if (touchHoldStart == 0) touchHoldStart = now;
+                                if (now - touchHoldStart >= TOUCH_HOLD_THRESHOLD_NS) {
+                                    inputDetected = true;
+                                    overlay->buttonState.touchDragActive.exchange(true, std::memory_order_acq_rel);
+                                }
+                            }
+                        } else {
+                            // Touch out of overlay bounds — reset hold timer
+                            touchHoldStart = 0;
+                            overlay->buttonState.touchDragActive.exchange(false, std::memory_order_acq_rel);
                         }
+                    } else {
+                        // No touch detected — reset hold timer and drag-ready flag
+                        touchHoldStart = 0;
+                        overlay->buttonState.touchDragActive.exchange(false, std::memory_order_acq_rel);
                     }
                     
                     // Poll buttons from both controllers
@@ -153,14 +179,13 @@ public:
                     
                     // Combine input from both controllers
                     const u64 keysHeld = padGetButtons(&pad_p1) | padGetButtons(&pad_handheld);
-                    const u64 now = armTicksToNs(armGetSystemTick());
                     
                     // Track PLUS hold duration
                     if ((keysHeld & KEY_PLUS) && !(keysHeld & ~KEY_PLUS & ALL_KEYS_MASK)) {
                         if (plusHoldStart == 0) {
                             plusHoldStart = now;
                         }
-                        if (now - plusHoldStart >= HOLD_THRESHOLD_NS) {
+                        if (now - plusHoldStart >= PLUS_HOLD_THRESHOLD_NS) {
                             inputDetected = true;
                             overlay->buttonState.plusDragActive.exchange(true, std::memory_order_acq_rel);
                         }
@@ -288,8 +313,9 @@ public:
             // In limited memory mode, correct frameOffsetX first, then calculate display position
             if (ult::limitedMemory) {
                 // Calculate valid range for frameOffsetX (in full 1280px coordinate space)
-                const int minFrameX = framePadding - (base_x - border);
-                const int maxFrameX = screenWidth - framePadding - totalWidth - (base_x - border);
+                // Matches Mini: minFrameX = framePadding - cachedBaseX (cachedBaseX==base_x==0)
+                const int minFrameX = framePadding - base_x;
+                const int maxFrameX = screenWidth - framePadding - totalWidth - base_x;
                 
                 // Clamp frameOffsetX to valid bounds
                 if (frameOffsetX < minFrameX) {
@@ -298,9 +324,9 @@ public:
                     frameOffsetX = maxFrameX;
                 }
                 
-                // Check Y bounds
-                const int minFrameY = framePadding - (base_y - border);
-                const int maxFrameY = screenHeight - framePadding - totalHeight - (base_y - border);
+                // Check Y bounds (same correction — drop the erroneous +border offset)
+                const int minFrameY = framePadding - base_y;
+                const int maxFrameY = screenHeight - framePadding - totalHeight - base_y;
                 
                 if (frameOffsetY < minFrameY) {
                     frameOffsetY = minFrameY;
@@ -308,15 +334,16 @@ public:
                     frameOffsetY = maxFrameY;
                 }
                 
-                // Now calculate _frameOffsetX for the 448px layer
+                // Now calculate _frameOffsetX for the 448px layer (matches Mini)
                 _frameOffsetX = std::max(0, frameOffsetX - (1280-448));
-                
-                // Calculate position with corrected frame offsets
-                posX = base_x + _frameOffsetX - border;
-                posY = base_y + frameOffsetY - border;
                 
                 // Update layer position
                 updateLayerPos();
+                
+                // Draw at base_x + _frameOffsetX, matching Mini's cachedBaseX + _frameOffsetX.
+                // Do NOT subtract border — that pushes posX negative and breaks arc geometry.
+                posX = base_x + _frameOffsetX;
+                posY = base_y + frameOffsetY;
             } else {
                 // Non-limited memory mode - use original logic with clamping
                 _frameOffsetX = frameOffsetX;
@@ -462,14 +489,25 @@ public:
         ///FPS
         stats temp = {0, false};
         static uint64_t lastFrame = 0;
+
+        const u64 _nowTick = armGetSystemTick();
+        const bool shouldUpdateData = (_nowTick - lastDataUpdateTick) >= (systemtickfrequency / settings.refreshRate);
+        if (shouldUpdateData) {
+            lastDataUpdateTick = _nowTick;
         
-        snprintf(FPSavg_c, sizeof FPSavg_c, "%2.1f",  FPSavg);
+        if (settings.useIntegerFPS)
+            snprintf(FPSavg_c, sizeof FPSavg_c, "%d", (int)round(FPSavg));
+        else
+            snprintf(FPSavg_c, sizeof FPSavg_c, "%2.1f",  FPSavg);
         const uint8_t SaltySharedDisplayRefreshRate = *(uint8_t*)((uintptr_t)shmemGetAddr(&_sharedmemory) + 1);
         if (SaltySharedDisplayRefreshRate) 
             refreshRate = SaltySharedDisplayRefreshRate;
         else refreshRate = 60;
         if (FPSavg < 254) {
-            snprintf(FPSavg_c, sizeof(FPSavg_c), "%.1f", useOldFPSavg ? FPSavg_old : FPSavg);
+            if (settings.useIntegerFPS)
+                snprintf(FPSavg_c, sizeof(FPSavg_c), "%d", (int)round(useOldFPSavg ? FPSavg_old : FPSavg));
+            else
+                snprintf(FPSavg_c, sizeof(FPSavg_c), "%.1f", useOldFPSavg ? FPSavg_old : FPSavg);
 
             if (lastFrame == lastFrameNumber) return;
             else lastFrame = lastFrameNumber;
@@ -491,6 +529,8 @@ public:
             }
             FPSavg_c[0] = 0;
         }
+
+        } // end shouldUpdateData
 
         if (cnt)
             return;
@@ -521,15 +561,20 @@ public:
         const double cpu_usage2 = (1.0 - (static_cast<double>(safe2) / systemtickfrequency_impl)) * 100.0;
         const double cpu_usage3 = (1.0 - (static_cast<double>(safe3) / systemtickfrequency_impl)) * 100.0;
         
-        // Compute max core load (the highest usage)
-        const double cpu_usageM = std::max({cpu_usage0, cpu_usage1, cpu_usage2, cpu_usage3});
-        
+        // Compute max core load (the highest usage), clamped to [0, 100]
+        const double cpu_usageM = std::max(0.0, std::min(100.0,
+            std::max({cpu_usage0, cpu_usage1, cpu_usage2, cpu_usage3})));
+
+        // Clamp GPU (tenths, 0–1000) and RAM (permille, 0–1000) before display
+        const uint32_t gpu_clamped = std::min(GPU_Load_u, (uint32_t)1000);
+        const uint32_t ram_clamped = std::min(ramLoad[SysClkRamLoad_All], (uint32_t)1000);
+
         // Format output strings
         snprintf(CPU_Load_c, sizeof(CPU_Load_c), "%.1f%%", cpu_usageM);
-        snprintf(GPU_Load_c, sizeof(GPU_Load_c), "%d.%d%%", GPU_Load_u / 10, GPU_Load_u % 10);
-        snprintf(RAM_Load_c, sizeof(RAM_Load_c), "%hu.%hhu%%",
-                 ramLoad[SysClkRamLoad_All] / 10,
-                 ramLoad[SysClkRamLoad_All] % 10);
+        snprintf(GPU_Load_c, sizeof(GPU_Load_c), "%u.%u%%", gpu_clamped / 10, gpu_clamped % 10);
+        snprintf(RAM_Load_c, sizeof(RAM_Load_c), "%u.%u%%",
+                 ram_clamped / 10,
+                 ram_clamped % 10);
         
         mutexUnlock(&mutex_Misc);
     
@@ -588,47 +633,32 @@ public:
             totalHeight = content_height + (2 * border);
         }
         
-        // Current overlay position (top-left of rounded rect)
-        const int overlayX = base_x + frameOffsetX - border;
-        const int overlayY = base_y + frameOffsetY - border;
-        
-        // Touch detection area (with padding for easier interaction)
-        static constexpr int touchPadding = 4;
-        const int touchableX = overlayX - touchPadding;
-        const int touchableY = overlayY - touchPadding;
-        const int touchableWidth = totalWidth + (touchPadding * 2);
-        const int touchableHeight = totalHeight + (touchPadding * 2);
-        
-        // Screen boundaries for clamping (accounting for total size)
-        const int minX = -(base_x - border) + framePadding;
-        const int maxX = screenWidth - totalWidth - (base_x - border) - framePadding;
-        const int minY = -(base_y - border) + framePadding;
-        const int maxY = screenHeight - totalHeight - (base_y - border) - framePadding;
+        // Screen boundaries for clamping.
+        // limitedMemory: posX = _frameOffsetX (no border offset), frameOffsetX range = [framePadding, screenWidth-totalWidth-framePadding]
+        // non-limited:   posX = frameOffsetX - border, so add border to both ends of the range
+        const int borderOffset = ult::limitedMemory ? 0 : border;
+        const int minX = framePadding - base_x + borderOffset;
+        const int maxX = screenWidth - totalWidth - base_x - framePadding + borderOffset;
+        const int minY = framePadding - base_y + borderOffset;
+        const int maxY = screenHeight - totalHeight - base_y - framePadding + borderOffset;
 
         const bool plusDragReady = buttonState.plusDragActive.load(std::memory_order_acquire);
 
         // Check button states
         const bool currentPlusHeld = (keysHeld & KEY_PLUS) && !(keysHeld & ~KEY_PLUS & ALL_KEYS_MASK) && plusDragReady;
     
-        // Handle touch dragging
-        if (currentTouchDetected && !isDragging) {
-            const int touchX = touchPos.x;
-            const int touchY = touchPos.y;
-            
-            if (!oldTouchDetected) {
-                // Touch just started - check if within overlay bounds
-                if (touchX >= touchableX && touchX <= touchableX + touchableWidth &&
-                    touchY >= touchableY && touchY <= touchableY + touchableHeight) {
-                    
-                    // Start touch dragging
-                    isDragging = true;
-                    triggerOnFeedback();
-                    hasMoved = false;
-                    initialTouchPos = touchPos;
-                    initialFrameOffsetX = frameOffsetX;
-                    initialFrameOffsetY = frameOffsetY;
-                }
-            }
+        // Handle touch dragging — activation timed by poll thread (500ms hold)
+        const bool touchDragReady = buttonState.touchDragActive.load(std::memory_order_acquire);
+        static bool oldTouchDragReady = false;
+        
+        if (currentTouchDetected && !isDragging && touchDragReady && !oldTouchDragReady) {
+            // Poll thread confirmed 500ms in-bounds hold — start drag now
+            isDragging = true;
+            triggerOnFeedback();
+            hasMoved = false;
+            initialTouchPos = touchPos;
+            initialFrameOffsetX = frameOffsetX;
+            initialFrameOffsetY = frameOffsetY;
         } else if (currentTouchDetected && isDragging && !currentPlusHeld) {
             // Continue touch dragging
             const int touchX = touchPos.x;
@@ -667,6 +697,7 @@ public:
             clearOnRelease = true;
             triggerOffFeedback(true);
         }
+        oldTouchDragReady = touchDragReady && currentTouchDetected;
     
         // Handle joystick dragging (MINUS + right joystick OR PLUS + left joystick)
         if (currentPlusHeld && !isDragging) {

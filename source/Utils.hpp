@@ -25,6 +25,7 @@ extern "C"
 #endif
 
 #include <sysclk/client/ipc.h>
+#include <hocclk/client/ipc.h>
 
 #if defined(__cplusplus)
 }
@@ -50,6 +51,7 @@ Thread t7;
 uint64_t systemtickfrequency = 19200000;
 
 LEvent threadexit;
+LEvent microSwipeExitEvent;  // global so it is zero-initialized like threadexit; leventCreate not needed
 PwmChannelSession g_ICon;
 const std::string folderpath = "sdmc:/switch/.overlays/";
 
@@ -84,6 +86,7 @@ Result nvencCheck = 1;
 Result nvjpgCheck = 1;
 Result nifmCheck = 1;
 Result sysclkCheck = 1;
+Result hocclkCheck = 1;
 Result pwmDutyCycleCheck = 1;
 
 //Wi-Fi
@@ -157,6 +160,16 @@ FieldDescriptor fd = 0;
 uint32_t GPU_Load_u = 0;
 bool GPULoadPerFrame = true;
 
+// Cached at init — never changes at runtime.
+// isHocClkNative  : hoc:clk service present (native hoc-clk, exposes GPU load via IPC)
+// isSysClkHoc     : sys:clk present AND version string contains "hoc" (sys-clk-hoc)
+// isSysClkPlain   : sys:clk present, no "hoc" in version string (vanilla sys-clk)
+// isUsingEOSorHOC : either of the above two sys:clk variants — reads extended fields
+bool g_isHocClkNative  = false;
+bool g_isSysClkHoc     = false;
+bool g_isSysClkPlain   = false;
+bool g_isUsingEOSorHOC = false;
+
 //NX-FPS
 
 struct resolutionCalls {
@@ -223,11 +236,779 @@ uint32_t realCPU_Hz = 0;
 uint32_t realGPU_Hz = 0;
 uint32_t realRAM_Hz = 0;
 uint32_t ramLoad[SysClkRamLoad_EnumMax];
+uint32_t ramBW_MBs = 0;      // Total RAM bandwidth in MB/s from ACTMON MC_ALL (direct read)
+uint32_t ramBW_MBs_cpu = 0;  // CPU-only RAM bandwidth in MB/s from ACTMON MC_CPU (direct read)
+                             // GPU bandwidth is the derived remainder: ramBW_MBs - ramBW_MBs_cpu.
 uint32_t realCPU_mV = 0; 
 uint32_t realGPU_mV = 0; 
 uint32_t realRAM_mV = 0; 
 uint32_t realSOC_mV = 0; 
+uint32_t componentCPU_mC = 0;  // CPU die temp (milliCelsius) - HOC IPC or SOCTHERM direct
+uint32_t componentGPU_mC = 0;  // GPU die temp (milliCelsius) - HOC IPC or SOCTHERM direct
+uint32_t componentRAM_mC = 0;  // MEM die temp (milliCelsius) - HOC IPC or SOCTHERM direct
 uint8_t refreshRate = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  SOCTHERM – CPU/GPU/MEM die temperatures (non-HOC path)
+//
+//  HOS does not enable the SENSOR_TEMP1/TEMP2 combined outputs — it reads
+//  temperatures through its own internal path.  We must initialise the
+//  sensors ourselves: read per-chip fuse calibration, compute therma/thermb
+//  coefficients, write them to each sensor's CFG2 register, then enable
+//  TSENSOR_CLKEN.  After that the hardware updates SENSOR_TEMP1/2 every
+//  measurement cycle and we just read them.
+//
+//  Sleep/wake safety — IMPORTANT:
+//    HOS places SOCTHERM into reset and clock-gates it on system sleep, and
+//    restores it some time after wake.  Touching SOCTHERM (read or write)
+//    while it is in reset or its clock is gated causes the AXI transaction
+//    to never complete — the thread hangs holding mutex_Misc, which then
+//    blocks the render thread on mutexLock and freezes the whole UI.
+//    HOS sysmodules (sys-clk-hoc, sys-clk) avoid this by checking the
+//    SOC_THERM bits in the CAR (Clock And Reset) controller BEFORE every
+//    access — CAR itself is always-on and always safe to read.  We do the
+//    same: IsDisabledThroughSleep() reads two CAR registers and Read() /
+//    StartSensors() bail out cleanly when SOCTHERM is gated/reset.
+//    This is the same check ReadTSensors() performs in tsensor/soctherm.cpp
+//    of the hoc-clk sysmodule (CLK_RST_CONTROLLER_RST_DEVICES_U bit 14 /
+//    CLK_RST_CONTROLLER_CLK_OUT_ENB_U bit 14 — SOC_THERM clock id 78).
+//
+//  Requires ovll.json kernel_capabilities:
+//    0x700E2000 (SOCTHERM, 4KB) read+write
+//    0x7000F000 (FUSE,     4KB) read-only
+//    0x60006000 (CAR,      4KB) read-only (already mapped by Actmon)
+// ─────────────────────────────────────────────────────────────────────────────
+namespace Soctherm {
+
+// Physical base addresses
+static constexpr u64 PA_SOC  = 0x700E2000;
+static constexpr u64 PA_FUSE = 0x7000F000;
+static constexpr u64 PA_CAR  = 0x60006000;
+
+// CAR (Clock And Reset) register offsets used for SOCTHERM sleep detection.
+// SOC_THERM is CAR clock id 78 → _U register set, bit 14.
+// These offsets/bits match exactly what hoc-clk sysmodule's
+// tsensor/soctherm.cpp uses in IsDisabledThroughSleep().
+static constexpr u32 CAR_RST_DEVICES_U   = 0x00C;
+static constexpr u32 CAR_CLK_OUT_ENB_U   = 0x018;
+static constexpr u32 CAR_SOC_THERM_BIT   = 1u << 14;
+
+// SOCTHERM register offsets
+static constexpr u32 CFG0             = 0x00;
+static constexpr u32 CFG1             = 0x04;
+static constexpr u32 CFG2             = 0x08;
+static constexpr u32 CFG0_TALL_SHIFT  = 8;
+static constexpr u32 CFG1_TSMP_SHIFT  = 0;
+static constexpr u32 CFG1_TIDDQ_SHIFT = 15;
+static constexpr u32 CFG1_TEN_SHIFT   = 24;
+static constexpr u32 CFG1_TEMP_ENABLE = 1u << 31;
+static constexpr u32 CFG2_THERMA_SHIFT= 16;
+
+static constexpr u32 SENSOR_PDIV        = 0x1C0;
+static constexpr u32 SENSOR_HOTSPOT_OFF = 0x1C4;
+static constexpr u32 SENSOR_TEMP1       = 0x1C8; // [31:16]=CPU [15:0]=GPU
+static constexpr u32 SENSOR_TEMP2       = 0x1CC; // [31:16]=MEM [15:0]=PLLX
+static constexpr u32 TSENSOR_CLKEN      = 0x1DC;
+static constexpr u32 TSENSOR_ENABLE     = 225u;
+
+static constexpr u32 PDIV_T210B0 = 0xCC0Cu;
+static constexpr u32 PDIV_T210   = 0x8888u;
+static constexpr u32 HOTSPOT_VAL = 0x000A0500u;
+static constexpr u32 PDIV_MASK_T210B0  = 0xFFFF00F0u;
+static constexpr u32 PDIV_MASK_T210    = 0xFFFF0000u;
+static constexpr u32 HSPOT_MASK_T210B0 = 0xFF0000FFu;
+static constexpr u32 HSPOT_MASK_T210   = 0xFF000000u;
+
+// READBACK format bits
+static constexpr u32 RB_MASK  = 0xFF00u;
+static constexpr u32 RB_SHIFT = 8;
+static constexpr u32 RB_HALF  = 1u << 7;
+static constexpr u32 RB_NEG   = 1u << 0;
+
+// FUSE offsets (relative to PA_FUSE)
+static constexpr u32 FUSE_CACHE_OFF    = 0x800;
+static constexpr u32 FUSE_COMMON       = 0xA80; // 0x7000FA80 absolute
+static constexpr u32 FUSE_CP_MASK      = 0x3FFu << 11;
+static constexpr u32 FUSE_CP_SHIFT     = 11;
+static constexpr u32 FUSE_FT_MASK      = 0x7FFu << 21;
+static constexpr u32 FUSE_FT_SHIFT     = 21;
+static constexpr u32 FUSE_FT_BASE_MASK = 0x1FFFu << 13;
+static constexpr u32 FUSE_FT_BASE_SHIFT= 13;
+static constexpr u32 FUSE_SFT_FT_MASK  = 0x1Fu << 6;
+static constexpr u32 FUSE_SFT_FT_SHIFT = 6;
+static constexpr s32 NOMINAL_CP        = 25;
+static constexpr s32 NOMINAL_FT        = 105;
+static constexpr s64 CALIB_COEFF       = 1000000LL;
+
+struct TSConf { u32 tall,tiddq,ten,pdiv,pdiv_ate,tsmp,tsmp_ate; };
+struct FCorr  { s32 alpha, beta; };
+struct TSGrp  { u32 temp_off, pdiv_mask; };
+struct TSens  { u32 base; const TSConf* cfg; u32 fuse_off; FCorr corr; const TSGrp* grp; };
+
+static constexpr TSConf eristaConf = {16300,1,1, 8, 8,120,480};
+static constexpr TSConf marikoConf = {16300,1,1,12, 6,240,480};
+
+static constexpr TSGrp gCpu = {SENSOR_TEMP1, 0xFu << 12};
+static constexpr TSGrp gGpu = {SENSOR_TEMP1, 0xFu <<  8};
+static constexpr TSGrp gPll = {SENSOR_TEMP2, 0xFu <<  0};
+static constexpr TSGrp gMem = {SENSOR_TEMP2, 0xFu <<  4};
+
+static constexpr TSens eS[] = {
+    {0x0C0,&eristaConf,0x198,{1085000, 3244200},&gCpu},
+    {0x0E0,&eristaConf,0x184,{1126200,  -67500},&gCpu},
+    {0x100,&eristaConf,0x188,{1098400, 2251100},&gCpu},
+    {0x120,&eristaConf,0x22C,{1108000,  602700},&gCpu},
+    {0x180,&eristaConf,0x254,{1074300, 2734900},&gGpu},
+    {0x1A0,&eristaConf,0x260,{1039700, 6829100},&gPll},
+    {0x140,&eristaConf,0x258,{1069200, 3549900},&gMem},
+    {0x160,&eristaConf,0x25C,{1173700,-6263600},&gMem},
+};
+static constexpr TSens mS[] = {
+    {0x0C0,&marikoConf,0x198,{1085000, 3244200},&gCpu},
+    {0x0E0,&marikoConf,0x184,{1126200,  -67500},&gCpu},
+    {0x100,&marikoConf,0x188,{1098400, 2251100},&gCpu},
+    {0x120,&marikoConf,0x22C,{1108000,  602700},&gCpu},
+    {0x180,&marikoConf,0x254,{1074300, 2734900},&gGpu},
+    {0x1A0,&marikoConf,0x260,{1039700, 6829100},&gPll},
+};
+
+static u64  vSoc  = 0;
+static u64  vFuse = 0;
+static u64  vCar  = 0;
+static u32  cal[8] = {};
+static bool ready = false;
+
+template<typename T=u32> static T    Rd(u64 b, u32 o)    { return *reinterpret_cast<volatile T*>(b+o); }
+template<typename T=u32> static void Wr(u64 b, u32 o, T v){ *reinterpret_cast<volatile T*>(b+o) = v;   }
+template<typename T=u32> static void Sb(u64 b, u32 o, T m){ Wr<T>(b, o, Rd<T>(b,o)|m); }
+
+static bool MapPA(u64& va, u64 pa) {
+    if (hosversionAtLeast(10,0,0)) {
+        u64 sz = 0;
+        return R_SUCCEEDED(svcQueryMemoryMapping(&va, &sz, pa, 0x1000));
+    } else {
+        return R_SUCCEEDED(svcLegacyQueryIoMapping(&va, pa, 0x1000));
+    }
+}
+
+// True iff SOCTHERM is currently in reset OR its CAR clock gate is off.
+// In either case the peripheral does not respond on the AXI bus and any
+// SOCTHERM read/write will hang the requesting thread.  Caller must hold
+// off all SOCTHERM access until this returns false.  Reading CAR is always
+// safe — CAR is always-on.
+// Mirrors tsensor::IsDisabledThroughSleep() in the hoc-clk sysmodule.
+static bool IsDisabledThroughSleep() {
+    if (!vCar) return true;  // CAR not mapped → cannot verify → assume unsafe
+    return (Rd(vCar, CAR_RST_DEVICES_U) & CAR_SOC_THERM_BIT)
+        || !(Rd(vCar, CAR_CLK_OUT_ENB_U) & CAR_SOC_THERM_BIT);
+}
+
+static s32  Sext32(u32 v, int idx) { u8 sh = 31-idx; return (s32)(v<<sh)>>sh; }
+static s64  Div64p(s64 a, s32 b)   { s64 al=a<<16; return ((al*2+1)/(2*(s64)b))>>16; }
+
+// Decode SOCTHERM READBACK format to milliCelsius — identical to HOC TranslateTemp.
+static s32 Trans(u16 val) {
+    s32 t = ((val & RB_MASK) >> RB_SHIFT) * 1000;
+    if (val & RB_HALF) t += 500;
+    if (val & RB_NEG)  t  = -t;
+    return t;
+}
+
+static void CalcCal(const TSens& s, u32 bcp, u32 bft, s32 tcp, s32 tft, u32& out) {
+    u32 raw  = Rd(vFuse, s.fuse_off + FUSE_CACHE_OFF);
+    s32 tscp = (s32)(bcp*64) + Sext32(raw, 12);
+    s32 tsft = (s32)(bft*32) + Sext32((raw & FUSE_FT_BASE_MASK) >> FUSE_FT_BASE_SHIFT, 12);
+    s32 ds   = tsft - tscp,  dt = tft - tcp;
+    s32 mult = s.cfg->pdiv * s.cfg->tsmp_ate;
+    s32 div  = s.cfg->tsmp * s.cfg->pdiv_ate;
+    s64 tmp  = (s64)dt * (1LL<<13) * mult;
+    s16 A    = (s16)Div64p(tmp, (s64)ds * div);
+    tmp      = (s64)tsft * tcp - (s64)tscp * tft;
+    s16 B    = (s16)Div64p(tmp, ds);
+    tmp      = (s64)A * s.corr.alpha;
+    A        = (s16)Div64p(tmp, CALIB_COEFF);
+    tmp      = (s64)B * s.corr.alpha + s.corr.beta;
+    B        = (s16)Div64p(tmp, CALIB_COEFF);
+    out      = ((u16)A << CFG2_THERMA_SHIFT) | (u16)B;
+}
+
+static void EnSensor(const TSens& s, u32 c) {
+    Wr(vSoc, s.base + CFG0,
+        s.cfg->tall << CFG0_TALL_SHIFT);
+    Wr(vSoc, s.base + CFG1,
+        ((s.cfg->tsmp - 1) << CFG1_TSMP_SHIFT) |
+        (s.cfg->tiddq      << CFG1_TIDDQ_SHIFT) |
+        (s.cfg->ten        << CFG1_TEN_SHIFT)   |
+        CFG1_TEMP_ENABLE);
+    Wr(vSoc, s.base + CFG2, c);
+}
+
+// Configure all sensors and enable TSENSOR_CLKEN.  Caller MUST verify
+// SOCTHERM is not in reset / clock-gated before calling — this function
+// performs read-modify-write on SENSOR_PDIV and SENSOR_HOTSPOT_OFF, which
+// would hang the bus if the peripheral is off.  Guarded defensively here
+// as well in case of a future caller that forgets.
+static void StartSensors() {
+    if (IsDisabledThroughSleep()) return;
+    if (isMariko) {
+        for (u32 i = 0; i < 6; ++i) EnSensor(mS[i], cal[i]);
+        Wr(vSoc, SENSOR_PDIV,
+            (Rd(vSoc,SENSOR_PDIV) & PDIV_MASK_T210B0) | PDIV_T210B0);
+        Wr(vSoc, SENSOR_HOTSPOT_OFF,
+            (Rd(vSoc,SENSOR_HOTSPOT_OFF) & HSPOT_MASK_T210B0) | HOTSPOT_VAL);
+    } else {
+        for (u32 i = 0; i < 8; ++i) EnSensor(eS[i], cal[i]);
+        Wr(vSoc, SENSOR_PDIV,
+            (Rd(vSoc,SENSOR_PDIV) & PDIV_MASK_T210) | PDIV_T210);
+        Wr(vSoc, SENSOR_HOTSPOT_OFF,
+            (Rd(vSoc,SENSOR_HOTSPOT_OFF) & HSPOT_MASK_T210) | HOTSPOT_VAL);
+    }
+    Wr(vSoc, TSENSOR_CLKEN, TSENSOR_ENABLE);
+}
+
+// One-time init: map hardware, compute fuse calibration, enable sensors.
+// Safe to call repeatedly — bails out early if SOCTHERM is currently in
+// reset or clock-gated (e.g. immediately post-boot or post-wake). Caller
+// (Read) will retry on each poll cycle until init completes successfully.
+static void Initialize() {
+    if (ready) return;
+    // Map each region lazily.  Use a local then assign only on success so
+    // a failed MapPA cannot leave the global in a garbage state.
+    if (!vSoc)  { u64 tmp = 0; if (!MapPA(tmp, PA_SOC))  return; vSoc  = tmp; }
+    if (!vFuse) { u64 tmp = 0; if (!MapPA(tmp, PA_FUSE)) return; vFuse = tmp; }
+    if (!vCar)  { u64 tmp = 0; if (!MapPA(tmp, PA_CAR))  return; vCar  = tmp; }
+
+    // Do not touch SOCTHERM if it's currently gated (boot/wake window).
+    // We'll try again on the next Read() call.
+    if (IsDisabledThroughSleep()) return;
+
+    // Read per-chip fuse calibration (HOS clock is already on — no CAR writes needed)
+    u32 fc  = Rd(vFuse, FUSE_COMMON);
+    u32 bcp = (fc & FUSE_CP_MASK)      >> FUSE_CP_SHIFT;
+    u32 bft = (fc & FUSE_FT_MASK)      >> FUSE_FT_SHIFT;
+    s32 sft = Sext32((fc & FUSE_SFT_FT_MASK) >> FUSE_SFT_FT_SHIFT, 4);
+    s32 scp = Sext32(fc, 5);
+    s32 tcp = 2 * NOMINAL_CP + scp;
+    s32 tft = 2 * NOMINAL_FT + sft;
+
+    if (isMariko) { for (u32 i = 0; i < 6; ++i) CalcCal(mS[i],bcp,bft,tcp,tft,cal[i]); }
+    else          { for (u32 i = 0; i < 8; ++i) CalcCal(eS[i],bcp,bft,tcp,tft,cal[i]); }
+
+    StartSensors();
+    ready = true;
+}
+
+// Called each poll cycle.
+//
+// Sleep/wake handling:
+//   1. CAR-based gate: if SOCTHERM is in reset or its clock is off, return
+//      immediately WITHOUT touching SOCTHERM.  This is the same approach
+//      the hoc-clk sysmodule uses; it's the only way to avoid hanging on a
+//      bus transaction to a powered-down peripheral.
+//   2. If init was deferred (e.g. SOCTHERM was gated at thread start),
+//      try to finish it now that the hardware is available.
+//   3. Otherwise read SENSOR_TEMP1/TEMP2 normally.  If the kernel cleared
+//      TSENSOR_CLKEN during sleep but SOCTHERM is back online, re-run
+//      StartSensors() to re-enable the measurement clock.
+static void Read() {
+    // CAR must be mapped before we can safely probe SOCTHERM.  If Initialize
+    // didn't get a chance to map it (e.g. very first call), do it now.
+    if (!vCar) { u64 tmp = 0; if (!MapPA(tmp, PA_CAR)) return; vCar = tmp; }
+
+    // Bail out cleanly while SOCTHERM is in reset / clock-gated.
+    if (IsDisabledThroughSleep()) return;
+
+    // Finish deferred init if needed (mapping succeeded but sensors were
+    // not configured because SOCTHERM was gated).
+    if (!ready) { Initialize(); if (!ready) return; }
+
+    // Sensors lose TSENSOR_CLKEN across sleep.  Re-enable when needed.
+    // Safe to write SOCTHERM here — the CAR check above proved it's up.
+    if (Rd(vSoc, TSENSOR_CLKEN) != TSENSOR_ENABLE) { StartSensors(); return; }
+
+    u32 t1 = Rd(vSoc, SENSOR_TEMP1);
+    u32 t2 = Rd(vSoc, SENSOR_TEMP2);
+    if (!t1 && !t2) return; // sensors still warming up; keep last values
+    componentCPU_mC = (u32)Trans((u16)(t1 >> 16));
+    componentGPU_mC = (u32)Trans((u16)(t1 & 0xFFFFu));
+    // Erista: dedicated MEM sensor in TEMP2[31:16]
+    // Mariko: no MEM sensor — use PLLX [15:0] as proxy (same as HOC)
+    componentRAM_mC = isMariko
+        ? (u32)Trans((u16)(t2 & 0xFFFFu))
+        : (u32)Trans((u16)(t2 >> 16));
+}
+
+} // namespace Soctherm
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ACTMON – RAM bandwidth reading via direct ACTMON hardware access.
+//
+//  Reads the MC_ALL and MC_CPU activity monitor average counts and converts to MB/s.
+//  MC_ALL measures total memory bus traffic; MC_CPU measures CPU-only traffic.
+//  GPU bandwidth is the derived remainder (MC_ALL − MC_CPU), mirroring sys-clk-hoc.
+//
+//  Formula: bw_MB_s = avg_count * 16 / 20000  (EMC freq cancels out)
+//  (derived from: bw = emc_freq_khz * 16 * load_permille/1000000, where
+//   load_permille = avg_count * 1000 / (emc_freq_khz * ACTMON_PERIOD_MS),
+//   ACTMON_PERIOD_MS = 20 — the EMC freq cancels out)
+//
+//  Devices are lazily enabled — if MC_ALL/MC_CPU isn't yet active we enable it
+//  (needs EMC freq for init_avg). 1-second re-init throttle avoids hammering on
+//  failure. Both devices share the same period register; writing it idempotently
+//  is harmless because the value is identical regardless of which device triggered.
+//
+//  Requires ovll.json kernel_capabilities:
+//    0x6000C000 (ACTMON, 4KB) read+write
+//    0x60006000 (CAR,    4KB) read+write  ← for PTO-based EMC freq measurement
+// ─────────────────────────────────────────────────────────────────────────────
+namespace Actmon {
+
+static constexpr u64 PA_ACTMON = 0x6000C000ULL;
+static constexpr u64 PA_CAR    = 0x60006000ULL;
+
+// ACTMON base = PA_ACTMON + 0x800; devices start at base + 0x80
+static constexpr u32 ACTMON_BASE_OFF    = 0x800;
+static constexpr u32 ACTMON_DEV_OFF     = 0x80;  // devices start here within ACTMON_BASE
+static constexpr u32 ACTMON_DEV_SIZE    = 0x40;
+
+// ACTMON global registers (relative to ACTMON_BASE)
+static constexpr u32 GLB_STATUS        = 0x00;
+static constexpr u32 GLB_PERIOD_CTRL   = 0x04;
+static constexpr u32 MCCPU_MON_ACT     = 1u << 8;   // MC_CPU device active bit in GLB_STATUS
+static constexpr u32 MCALL_MON_ACT     = 1u << 9;   // MC_ALL device active bit in GLB_STATUS
+static constexpr u32 GLB_PERIOD_USEC   = 1u << 8;
+
+// ACTMON_PERIOD: 20 ms sample window (same as hoc-clk)
+static constexpr u32 ACTMON_PERIOD_MS  = 20;
+// GLB_PERIOD_CTRL value: sample = (period_ms - 1) & 0xFF, no USEC bit (ms mode)
+static constexpr u32 GLB_PERIOD_VAL    = (ACTMON_PERIOD_MS - 1) & 0xFF;
+
+// Device enum indices (0-based within ACTMON_DEV_BASE):
+// CPU=0 BPMP=1 AHB=2 APB=3 CPU_FREQ=4 MC_ALL=5 MC_CPU=6
+static constexpr u32 DEV_MC_ALL        = 5;
+static constexpr u32 DEV_MC_CPU        = 6;
+
+// Device register offsets within one device block (u32 slots)
+static constexpr u32 DEV_CTRL          = 0x00;
+static constexpr u32 DEV_UPPER_WMARK   = 0x04;
+static constexpr u32 DEV_LOWER_WMARK   = 0x08;
+static constexpr u32 DEV_INIT_AVG      = 0x0C;
+static constexpr u32 DEV_AVG_UPPER     = 0x10;
+static constexpr u32 DEV_AVG_LOWER     = 0x14;
+static constexpr u32 DEV_COUNT_WEIGHT  = 0x18;
+static constexpr u32 DEV_COUNT         = 0x1C;
+static constexpr u32 DEV_AVG_COUNT     = 0x20;
+
+// CTRL bits
+static constexpr u32 DEV_CTRL_K_VAL3   = 3u << 10;  // 8-sample average
+static constexpr u32 DEV_CTRL_ENB_PER  = 1u << 18;
+static constexpr u32 DEV_CTRL_ENB      = 1u << 31;
+
+// CAR register offsets (relative to PA_CAR)
+static constexpr u32 PTO_CLK_CNT_CNTL   = 0x60;
+static constexpr u32 PTO_CLK_CNT_STATUS = 0x64;
+static constexpr u32 PTO_CNT_EN         = 1u << 9;
+static constexpr u32 PTO_CNT_RST        = 1u << 10;
+static constexpr u32 PTO_CLK_ENABLE     = 1u << 13;
+static constexpr u32 PTO_SRC_SEL_SHIFT  = 14;
+static constexpr u32 PTO_DIV_SEL_DIV1   = 1u << 23;
+static constexpr u32 PTO_CLK_CNT_BUSY   = 1u << 31;
+static constexpr u32 PTO_CLK_CNT_MASK   = 0xFFFFFF;
+static constexpr u32 CLK_PTO_EMC        = 0x24;
+
+// CAR register offsets for ACTMON clock-gate / reset check.
+// ACTMON is CAR peripheral clock id 119 (Tegra210). Clock IDs 96–127 live
+// in the _V register set:  RST_DEVICES_V = 0x358, CLK_OUT_ENB_V = 0x360.
+// Bit within the register is 119-96 = 23.
+// HOS gates ACTMON during sleep (same as SOCTHERM); touching the
+// ACTMON MMIO region while it is gated hangs the AXI bus.
+static constexpr u32 CAR_RST_DEVICES_V  = 0x358;
+static constexpr u32 CAR_CLK_OUT_ENB_V  = 0x360;
+static constexpr u32 CAR_ACTMON_BIT     = 1u << 23;
+
+static u64  vActmon = 0;
+static u64  vCar    = 0;
+static bool mapped  = false;
+static u64  initFailTick = 0;  // tick when mapping last failed; retry after 1s
+
+template<typename T=u32>
+static T Rd(u64 base, u32 off) { return *reinterpret_cast<volatile T*>(base + off); }
+template<typename T=u32>
+static void Wr(u64 base, u32 off, T v) { *reinterpret_cast<volatile T*>(base + off) = v; }
+
+// True iff ACTMON is currently in reset OR its CAR clock gate is off.
+// HOS gates ACTMON during sleep exactly as it does SOCTHERM; any Rd/Wr
+// to the ACTMON MMIO region while gated hangs the AXI bus.  CAR itself
+// is always-on and always safe to read.
+// Mirrors the IsDisabledThroughSleep() pattern in the Soctherm namespace.
+static bool IsActmonDisabled() {
+    if (!vCar) return true;  // CAR not mapped → cannot verify → assume unsafe
+    return (Rd(vCar, CAR_RST_DEVICES_V) & CAR_ACTMON_BIT)
+        || !(Rd(vCar, CAR_CLK_OUT_ENB_V) & CAR_ACTMON_BIT);
+}
+
+// Helper: map a physical address
+static bool MapPA(u64& va, u64 pa) {
+    if (hosversionAtLeast(10, 0, 0)) {
+        u64 sz = 0;
+        return R_SUCCEEDED(svcQueryMemoryMapping(&va, &sz, pa, 0x1000));
+    } else {
+        return R_SUCCEEDED(svcLegacyQueryIoMapping(&va, pa, 0x1000));
+    }
+}
+
+// Compute ACTMON_BASE virtual address
+static inline u64 ActmonBase()  { return vActmon + ACTMON_BASE_OFF; }
+// Compute device register base for a given device index (5 = MC_ALL, 6 = MC_CPU)
+static inline u64 DevBase(u32 devIdx) { return ActmonBase() + ACTMON_DEV_OFF + devIdx * ACTMON_DEV_SIZE; }
+
+// Attempt one-time IO mapping
+static bool TryMap() {
+    if (mapped) return true;
+    u64 now = armGetSystemTick();
+    if (initFailTick && armTicksToNs(now - initFailTick) < 1000000000ULL) return false;
+    if (!MapPA(vActmon, PA_ACTMON)) { initFailTick = now; return false; }
+    if (!MapPA(vCar,    PA_CAR))    { vActmon = 0; initFailTick = now; return false; }
+    mapped = true;
+    return true;
+}
+
+// Public accessor: returns Actmon's already-mapped CAR virtual address, or 0
+// if mapping hasn't succeeded yet.  Triggers TryMap() so callers can rely on
+// "either I get a valid pointer or the hardware genuinely isn't available".
+// Used by other namespaces (e.g. RealClocks) to avoid duplicate IO mappings
+// of the same physical region, which can fail silently if the kernel imposes
+// per-process limits on how many times a given PA can be queried.
+static u64 GetCar() {
+    if (!mapped) (void)TryMap();
+    return vCar;
+}
+
+// Use PTO counter to measure EMC frequency in kHz (same method as hoc-clk).
+// Returns 0 on failure. Takes ~0.5 ms due to the measurement window.
+// We fall back to the global RAM_Hz if PTO is unavailable.
+static u32 MeasureEmcKHz() {
+    if (!vCar) return 0;
+    const u32 pto_win  = 16;
+    const u32 pto_osc  = 32768;
+    u32 val = (CLK_PTO_EMC << PTO_SRC_SEL_SHIFT) | PTO_DIV_SEL_DIV1 | PTO_CLK_ENABLE | (pto_win - 1);
+    Wr(vCar, PTO_CLK_CNT_CNTL, val);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+    Wr(vCar, PTO_CLK_CNT_CNTL, val | PTO_CNT_RST);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+    Wr(vCar, PTO_CLK_CNT_CNTL, val);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+    Wr(vCar, PTO_CLK_CNT_CNTL, val | PTO_CNT_EN);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    // window duration: 1s * pto_win / pto_osc + 14us
+    svcSleepThread((uint64_t)1000000000ULL * pto_win / pto_osc + 14000);
+    u32 iters = 100;
+    while ((Rd(vCar, PTO_CLK_CNT_STATUS) & PTO_CLK_CNT_BUSY) && iters--)
+        svcSleepThread(10000);
+    u32 cnt = Rd(vCar, PTO_CLK_CNT_STATUS) & PTO_CLK_CNT_MASK;
+    Wr(vCar, PTO_CLK_CNT_CNTL, 0);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+    // freq_hz = cnt * 1 * pto_osc / pto_win; return kHz
+    return (u32)(((u64)cnt * pto_osc / pto_win) / 1000);
+}
+
+// Enable a single ACTMON device (MC_ALL or MC_CPU) — only called when not already active.
+// Both devices use the same period, weight, K-value, and init_avg formula as sys-clk-hoc.
+// GLB_PERIOD_CTRL is written idempotently here; the value is the same regardless of which
+// device triggered the enable.
+static void EnableDev(u32 devIdx, u32 emc_freq_khz) {
+    u64 base = ActmonBase();
+    // Set global period (20 ms, millisecond mode — no USEC bit)
+    Wr(base, GLB_PERIOD_CTRL, GLB_PERIOD_VAL);
+    u64 dev = DevBase(devIdx);
+    Wr(dev, DEV_INIT_AVG,     (u32)emc_freq_khz * ACTMON_PERIOD_MS / 2);
+    Wr(dev, DEV_COUNT_WEIGHT, 256u * 4u);
+    Wr(dev, DEV_CTRL,         DEV_CTRL_ENB | DEV_CTRL_ENB_PER | DEV_CTRL_K_VAL3);
+}
+
+// Read total RAM bandwidth in MB/s from MC_ALL device. Returns 0 if hardware not ready.
+// Formula: bw_MB_s = avg_count * 16 / 20000  (EMC freq cancels out exactly)
+static u32 Read() {
+    if (!TryMap()) return 0;
+    if (IsActmonDisabled()) return 0;  // ACTMON gated during sleep — don't touch MMIO
+    u64 base = ActmonBase();
+    if (!(Rd(base, GLB_STATUS) & MCALL_MON_ACT)) {
+        // Device not running — enable it using RAM_Hz (global, set by clkrst/pcv)
+        u32 emc_khz = RAM_Hz / 1000;
+        if (!emc_khz) return 0;
+        EnableDev(DEV_MC_ALL, emc_khz);
+        return 0;  // Return 0 this cycle; avg will warm up next poll
+    }
+    u32 avg = Rd(DevBase(DEV_MC_ALL), DEV_AVG_COUNT);
+    // bw_MB_s = avg * 16 / (ACTMON_PERIOD_MS * 1000)
+    return (u32)(((u64)avg * 16u) / (ACTMON_PERIOD_MS * 1000u));
+}
+
+// Read CPU-only RAM bandwidth in MB/s from MC_CPU device. Returns 0 if hardware not ready.
+// Same formula and sample period as Read(); the only difference is which ACTMON device.
+// GPU bandwidth is the derived remainder: Read() - ReadCpu().
+// Assumes TryMap() has already succeeded (cheap path — guarded again here for safety).
+static u32 ReadCpu() {
+    if (!TryMap()) return 0;
+    if (IsActmonDisabled()) return 0;  // ACTMON gated during sleep — don't touch MMIO
+    u64 base = ActmonBase();
+    if (!(Rd(base, GLB_STATUS) & MCCPU_MON_ACT)) {
+        u32 emc_khz = RAM_Hz / 1000;
+        if (!emc_khz) return 0;
+        EnableDev(DEV_MC_CPU, emc_khz);
+        return 0;
+    }
+    u32 avg = Rd(DevBase(DEV_MC_CPU), DEV_AVG_COUNT);
+    return (u32)(((u64)avg * 16u) / (ACTMON_PERIOD_MS * 1000u));
+}
+
+} // namespace Actmon
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  RealClocks – CPU / GPU / EMC real-frequency measurement (non-IPC path)
+//
+//  When sys-clk-hoc or hoc-clk IPC is present, realCPU/GPU/RAM_Hz are pulled
+//  straight from the sysmodule context. When no IPC is available, this
+//  namespace measures the same three clocks directly off the hardware, using
+//  the same method the hoc-clk sysmodule uses internally (see
+//  Source/hoc-clk/sysmodule/src/soc/t210.c).
+//
+//  Measurement method:
+//    CPU : CAR PTO counter on CCLK_G_DIV2 (id 0x13), multiplier 2
+//    EMC : CAR PTO counter on EMC          (id 0x24), multiplier 1
+//    GPU : direct read of GPCPLL coefficient registers in the GPU MMIO,
+//          divider-decoded to a frequency (no PTO involved).
+//
+//  Sleep/wake safety:
+//    CAR itself is always-on, so CPU and EMC PTO measurements are always
+//    safe to perform.  The GPU is a different story — it is clock-gated
+//    and held in reset across sleep, and reads to its MMIO region while
+//    it is gated will hang the AXI bus (identical failure mode to SOCTHERM
+//    pre-fix).  We gate every GPU read on CLK_OUT_ENB_X / RST_DEVICES_X
+//    bit 24 (GPU3D clock id 184), exactly as t210.c does at line 224.
+//
+//  Cost:
+//    Each PTO measurement is ~510 µs of svcSleepThread + 4 brief CAR
+//    writes.  Doing this every 100 ms Misc cycle would add ~1 ms of
+//    mutex-held work per poll, which is more than necessary — we rate-limit
+//    to one update per second (sysmodule pattern, WAIT_NS = 1 s in t210.c).
+//
+//  Graceful degradation:
+//    GPU mapping at 0x57000000 requires a kernel-capability the overlay
+//    manifest may or may not grant.  If the mapping fails, GPU read is
+//    permanently skipped and realGPU_Hz stays 0 — consumers already treat
+//    `if (realGPU_Hz)` as a presence check, so the UI falls back cleanly
+//    to the target GPU_Hz value just as it does without any IPC at all.
+//
+//  Requires ovll.json kernel_capabilities:
+//    0x60006000 (CAR, 4 KB)   read+write  (already mapped by Actmon)
+//    0x57000000 (GPU, 16 MB)  read-only   (OPTIONAL — without it, only
+//                                          CPU and EMC real freqs report)
+// ─────────────────────────────────────────────────────────────────────────────
+namespace RealClocks {
+
+// Physical bases
+static constexpr u64 PA_CAR = 0x60006000ULL;
+static constexpr u64 PA_GPU = 0x57000000ULL;
+static constexpr u64 SZ_CAR = 0x1000ULL;
+static constexpr u64 SZ_GPU = 0x01000000ULL;
+
+// CAR register offsets — PTO (Peripheral Test Output) controller
+static constexpr u32 PTO_CLK_CNT_CNTL   = 0x60;
+static constexpr u32 PTO_CLK_CNT_STATUS = 0x64;
+static constexpr u32 PTO_CNT_EN         = 1u << 9;
+static constexpr u32 PTO_CNT_RST        = 1u << 10;
+static constexpr u32 PTO_CLK_ENABLE     = 1u << 13;
+static constexpr u32 PTO_SRC_SEL_SHIFT  = 14;
+static constexpr u32 PTO_DIV_SEL_DIV1   = 1u << 23;
+static constexpr u32 PTO_CLK_CNT_BUSY   = 1u << 31;
+static constexpr u32 PTO_CLK_CNT_MASK   = 0xFFFFFFu;
+
+// PTO clock-source ids (Tegra210 TRM)
+static constexpr u32 CLK_PTO_CCLK_G_DIV2 = 0x13;
+static constexpr u32 CLK_PTO_EMC         = 0x24;
+
+// CAR _X register offsets — used to verify GPU is not gated/reset.
+// GPU3D is Tegra210 CAR clock id 184 → _X register, bit 184 - 160 = 24.
+static constexpr u32 CAR_CLK_OUT_ENB_X = 0x280;
+static constexpr u32 CAR_RST_DEVICES_X = 0x28C;
+static constexpr u32 CAR_GPU_BIT       = 1u << 24;
+
+// GPU MMIO — GPCPLL coefficient register inside the GPU trim block.
+// Relative to PA_GPU base, the GPCPLL coefficient lives at 0x137000 + 0x04.
+// We only ever read one 32-bit register (divm | divn << 8 | divp << 16).
+static constexpr u32 GPU_TRIM_GPCPLL_COEFF = 0x137000u + 0x4u;
+
+// GPU PLL reference oscillator: 38.4 MHz (Tegra X1 spec)
+static constexpr u32 GPU_PLL_OSC_HZ = 38'400'000u;
+
+// Rate-limit: at most one full measurement update per second, same as
+// hoc-clk's t210.c WAIT_NS.  Each PTO measurement is ~510 µs of work,
+// and we do two of them (CPU + EMC) plus a fast GPU register read.
+static constexpr u64 UPDATE_INTERVAL_NS = 1'000'000'000ULL;
+
+static u64  vCar    = 0;
+static u64  vGpu    = 0;
+static bool gpuMapTried = false;  // set true after first attempt, success or fail
+static u64  lastUpdateTick = 0;   // armGetSystemTick() of last successful update
+
+template<typename T=u32> static T    Rd(u64 b, u32 o)    { return *reinterpret_cast<volatile T*>(b+o); }
+template<typename T=u32> static void Wr(u64 b, u32 o, T v){ *reinterpret_cast<volatile T*>(b+o) = v;   }
+
+static bool MapPA(u64& va, u64 pa, u64 size) {
+    if (hosversionAtLeast(10,0,0)) {
+        u64 sz = 0;
+        return R_SUCCEEDED(svcQueryMemoryMapping(&va, &sz, pa, size));
+    } else {
+        return R_SUCCEEDED(svcLegacyQueryIoMapping(&va, pa, size));
+    }
+}
+
+// True iff GPU3D is currently in reset OR its CAR clock gate is off.
+// In either case the GPU MMIO region does not respond on the AXI bus and
+// any GPU register read will hang the requesting thread.  Mirrors the
+// gpu_enabled check in hoc-clk sysmodule t210.c::_clock_update_freqs.
+// CAR reads are always safe.
+static bool IsGpuDisabled() {
+    if (!vCar) return true;
+    const u32 enb = Rd(vCar, CAR_CLK_OUT_ENB_X);
+    const u32 rst = Rd(vCar, CAR_RST_DEVICES_X);
+    return !(enb & CAR_GPU_BIT) || (rst & CAR_GPU_BIT);
+}
+
+// One PTO measurement.  Returns frequency in Hz at the PTO clock source,
+// already multiplied to compensate for any pre-divider.  Returns 0 on
+// failure (CAR not mapped, or counter never finishes).
+// Identical sequence to hoc-clk t210.c::_clock_get_dev_freq.
+static u32 MeasureHz(u32 srcId, u32 multiplier) {
+    if (!vCar) return 0;
+    const u32 pto_win = 16;
+    const u32 pto_osc = 32768;
+    const u32 val = (srcId << PTO_SRC_SEL_SHIFT) | PTO_DIV_SEL_DIV1
+                  | PTO_CLK_ENABLE | (pto_win - 1);
+
+    // Arm the counter with three short setup writes (gives the source
+    // mux time to settle and the counter to reset cleanly).
+    Wr(vCar, PTO_CLK_CNT_CNTL, val);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+
+    Wr(vCar, PTO_CLK_CNT_CNTL, val | PTO_CNT_RST);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+
+    Wr(vCar, PTO_CLK_CNT_CNTL, val);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+
+    // Start the count.
+    Wr(vCar, PTO_CLK_CNT_CNTL, val | PTO_CNT_EN);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+
+    // Window duration: 1 s * pto_win / pto_osc  ≈ 488 µs, +14 µs slack.
+    svcSleepThread((uint64_t)1'000'000'000ULL * pto_win / pto_osc + 14000);
+
+    // Wait out the BUSY bit, bounded so we can't spin forever.
+    u32 iters = 100;
+    while ((Rd(vCar, PTO_CLK_CNT_STATUS) & PTO_CLK_CNT_BUSY) && iters--) {
+        svcSleepThread(10000);
+    }
+    const u32 cnt = Rd(vCar, PTO_CLK_CNT_STATUS) & PTO_CLK_CNT_MASK;
+
+    // Disarm.
+    Wr(vCar, PTO_CLK_CNT_CNTL, 0);
+    (void)Rd(vCar, PTO_CLK_CNT_CNTL);
+    svcSleepThread(2000);
+
+    // freq_hz = cnt * multiplier * pto_osc / pto_win
+    return (u32)(((u64)cnt * multiplier * pto_osc) / pto_win);
+}
+
+// Decode GPCPLL coefficient register into a frequency in Hz.
+// Layout: bits [7:0]=divm  [15:8]=divn  [21:16]=divp
+// f_gpu = osc * divn / (divm * divp * 2)   (the /2 is fixed downstream)
+// Same math as hoc-clk t210.c lines 241-245.
+static u32 DecodeGpcPllHz(u32 coeff) {
+    const u32 divm = coeff & 0xFFu;
+    const u32 divn = (coeff >> 8) & 0xFFu;
+    const u32 divp = (coeff >> 16) & 0x3Fu;
+    if (!divm || !divp) return 0;  // guard against transient zero reads
+    return (u32)((u64)GPU_PLL_OSC_HZ * divn / ((u64)divm * divp) / 2u);
+}
+
+// Try to map CAR/GPU on first call. CAR is shared with Actmon — we reuse
+// Actmon's mapping rather than calling svcQueryMemoryMapping ourselves for
+// the same PA, because the kernel can silently refuse duplicate queries of
+// the same physical region from the same process.  Actmon's mapping is the
+// canonical one (its success is observable: RAM bandwidth depends on it),
+// so reusing it guarantees consistency.
+// GPU mapping at 0x57000000 is best-effort — many overlay manifests don't
+// permit it, in which case realGPU_Hz remains 0 and the display falls back
+// to the target GPU_Hz value.
+static bool EnsureMapped() {
+    if (!vCar) {
+        vCar = Actmon::GetCar();   // shares Actmon's mapping — never re-queried
+        if (!vCar) return false;   // Actmon couldn't map CAR either; nothing we can do
+    }
+    if (!vGpu && !gpuMapTried) {
+        gpuMapTried = true;  // only attempt once — failure is permanent
+        u64 tmp = 0;
+        if (MapPA(tmp, PA_GPU, SZ_GPU)) vGpu = tmp;
+    }
+    return true;
+}
+
+// Called from the Misc thread on the no-IPC fallback path.
+// Updates realCPU_Hz / realRAM_Hz / realGPU_Hz at most once per second.
+// Safe to call every Misc poll cycle (~100 ms) — internal rate-limit
+// makes 9 out of every 10 calls a no-op fast-path that touches no MMIO.
+//
+// On sleep/wake the GPU may be gated; in that case realGPU_Hz is left
+// untouched (keeps the last known value, same as the IPC path would).
+static void Update() {
+    if (!EnsureMapped()) return;  // CAR could not be mapped — give up.
+
+    const u64 now = armGetSystemTick();
+    // First call always proceeds (lastUpdateTick == 0 → diff = now, large).
+    if (lastUpdateTick != 0 &&
+        armTicksToNs(now - lastUpdateTick) < UPDATE_INTERVAL_NS) {
+        return;
+    }
+    lastUpdateTick = now;
+
+    // CPU and EMC: PTO is part of CAR which is always-on, so these are
+    // always safe even immediately post-wake.  Both return Hz.
+    const u32 cpuHz = MeasureHz(CLK_PTO_CCLK_G_DIV2, 2);
+    const u32 emcHz = MeasureHz(CLK_PTO_EMC, 1);
+    if (cpuHz) realCPU_Hz = cpuHz;
+    if (emcHz) realRAM_Hz = emcHz;
+
+    // GPU: only read if the GPU MMIO is mapped AND the GPU is currently
+    // clocked & out of reset.  If gated (sleep/wake window, or rare
+    // hardware power-gate during idle), leave realGPU_Hz alone — the
+    // sysmodule IPC path behaves the same way ("don't update" is correct
+    // behaviour, not "report zero").
+    if (vGpu && !IsGpuDisabled()) {
+        const u32 coeff = Rd(vGpu, GPU_TRIM_GPCPLL_COEFF);
+        const u32 gpuHz = DecodeGpcPllHz(coeff);
+        if (gpuHz) realGPU_Hz = gpuHz;
+    }
+}
+
+} // namespace RealClocks
+
 
 int compare (const void* elem1, const void* elem2) {
     if ((((resolutionCalls*)(elem1))->calls) > (((resolutionCalls*)(elem2))->calls)) return -1;
@@ -317,6 +1098,11 @@ Mutex mutex_Misc = {0};
 
 void CheckIfGameRunning(void*) {
     do {
+        // Halt during shallow sleep — the foreground application cannot
+        // change while the system is asleep, so pmdmnt IPC + shared-memory
+        // scan are pure waste.
+        if (tsl::hlp::waitWhileSleeping()) continue;
+
         mutexLock(&mutex_Misc);
         if (!check && R_FAILED(pmdmntGetApplicationProcessId(&PID))) {
             GameRunning = false;
@@ -394,7 +1180,19 @@ void BatteryChecker(void*) {
     uint64_t tick_TTE = svcGetSystemTick();
     uint64_t nanoseconds = 1000;
     do {
+        // Halt during shallow sleep — I2C reads to MAX17050 and PSM IPC are
+        // slow even when awake; doing them every 500ms during sleep is
+        // wasted I2C bus activity and PSM sysmodule wakes for no display.
+        // Battery readings during sleep aren't useful since the overlay can't
+        // render them anyway.  Resumes on wake via libultrahand's PSC handler.
+        if (tsl::hlp::waitWhileSleeping()) continue;
+
         mutexLock(&mutex_BatteryChecker);
+        // Re-check after acquiring the lock: sleep can be entered in the
+        // narrow window between the guard above and here.  The render thread
+        // also takes mutex_BatteryChecker; releasing immediately prevents it
+        // from stalling on mutexLock while I2C calls would block mid-suspend.
+        if (tsl::hlp::isSystemSleeping()) { mutexUnlock(&mutex_BatteryChecker); continue; }
         const uint64_t startTick = svcGetSystemTick();
 
         psmGetBatteryChargeInfoFields(psmService, &_batteryChargeInfoFields);
@@ -496,9 +1294,21 @@ void gpuLoadThread(void*) {
     #define gpu_samples_average 8
     uint32_t gpu_load_array[gpu_samples_average] = {0};
     size_t i = 0;
-    if (!GPULoadPerFrame && R_SUCCEEDED(nvCheck)) do {
+    // Only run the averaged-ioctl path when neither HOC sysmodule is available.
+    // When sys-clk-hoc or hoc-clk is present, GPU load is read from the IPC
+    // context (partLoad[HocClkPartLoad_GPU]) which is already an 8-sample average
+    // computed at 60fps inside the sysmodule — no need to duplicate that work here.
+    // Only skip when hoc-clk (native) is present — it exposes GPU load via IPC.
+    // sys-clk-hoc uses the sys:clk wire format which has no GPU load field,
+    // so the ioctl must still run for that path.
+    if (!GPULoadPerFrame && R_SUCCEEDED(nvCheck) && R_FAILED(hocclkCheck)) do {
+        // Halt during shallow sleep — the GPU is powered down and
+        // NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD would either fail or return stale
+        // data while costing a full IPC round-trip into nvservices.  Resumes
+        // immediately on wake via libultrahand's PSC handler.
+        if (tsl::hlp::waitWhileSleeping()) continue;
         u32 temp;
-        if (R_SUCCEEDED(nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &temp))) {
+        if (R_SUCCEEDED(nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &temp)) && temp > 0) {
             gpu_load_array[i++ % gpu_samples_average] = temp;
             GPU_Load_u = std::accumulate(&gpu_load_array[0], &gpu_load_array[gpu_samples_average], 0) / gpu_samples_average;
         }
@@ -514,11 +1324,26 @@ std::string getVersionString() {
     return std::string(buf);
 }
 
+// Called once from main.cpp after sysclkCheck/hocclkCheck are finalized.
+// Caches module-detection so per-loop usingHOC()/usingEOS() never make IPC calls.
+void initModuleDetection() {
+    g_isHocClkNative = R_SUCCEEDED(hocclkCheck);
 
-bool usingEOS() {
-    const std::string versionString = getVersionString();
-    return versionString.find("eos") != std::string::npos;
+    if (R_SUCCEEDED(sysclkCheck)) {
+        const std::string ver = getVersionString();
+        g_isSysClkHoc   = (ver.find("hoc") != std::string::npos);
+        g_isSysClkPlain = !g_isSysClkHoc;
+    } else {
+        g_isSysClkHoc   = false;
+        g_isSysClkPlain = false;
+    }
+    // Any sys:clk or hoc:clk variant exposes extended volt/temp fields
+    g_isUsingEOSorHOC = g_isHocClkNative || g_isSysClkHoc || g_isSysClkPlain;
 }
+
+// Zero-cost wrappers — cached bools, no IPC after initModuleDetection() is called.
+inline bool usingEOS()  { return g_isSysClkHoc || g_isSysClkPlain; }
+inline bool usingHOC()  { return g_isHocClkNative || g_isSysClkHoc; }
 
 
 // === ULTRA-FAST VOLTAGE READING ===
@@ -534,19 +1359,34 @@ static constexpr PowerDomainId domains[] = {
 // Stuff that doesn't need multithreading
 void Misc(void*) {
     const uint64_t timeout_ns = TeslaFPS < 10 ? (1'000'000'000 / TeslaFPS) : 100'000'000;
-    const bool isUsingEOS = usingEOS();
+    const bool isUsingEOSorHOC = g_isUsingEOSorHOC;  // cached at init — no IPC cost
     
     // Initialize voltage reading if needed
     bool canReadVoltages = false;
-    if (!isUsingEOS && realVoltsPolling) {
+    if (!isUsingEOSorHOC && realVoltsPolling) {
         canReadVoltages = R_SUCCEEDED(rgltrInitialize());
         if (!canReadVoltages) {
             realVoltsPolling = false;
         }
     }
+
+    // Initialize SOCTHERM hardware for direct die-temp reading (non-HOC path).
+    // Maps SOCTHERM + FUSE + CAR, computes fuse calibration, starts sensors.
+    if (!usingHOC()) Soctherm::Initialize();
     
     do {
+        // Halt during shallow sleep — the IPC calls below (clkrst, sysclk,
+        // hocclk) plus the direct SOCTHERM reads are all wasted work while
+        // the SoC is power-managed.  Run the guard before taking the mutex
+        // so we don't hold it across the sleep wait.
+        if (tsl::hlp::waitWhileSleeping()) continue;
+
         mutexLock(&mutex_Misc);
+        // Re-check after acquiring the lock: sleep may have been entered in
+        // the window between the guard above and here.  Bail out immediately
+        // so we don't hold the mutex across blocking IPC calls while the
+        // target sysmodules are suspending.
+        if (tsl::hlp::isSystemSleeping()) { mutexUnlock(&mutex_Misc); continue; }
         
         // CPU, GPU and RAM Frequency
         if (R_SUCCEEDED(clkrstCheck)) {
@@ -563,6 +1403,15 @@ void Misc(void*) {
                 clkrstGetClockRate(&clkSession, &RAM_Hz);
                 clkrstCloseSession(&clkSession);
             }
+            // hoc-clk pattern: if EMC has dropped below the sleep floor (~665 MHz),
+            // the system entered sleep between our guard check and now.  Bail out
+            // exactly as hoc-clk's WaitForNextTick() does — avoids calling anything
+            // else (clkrst, sysclk, SOCTHERM, ACTMON) on a suspended SoC.
+            if (RAM_Hz > 0 && RAM_Hz <= 665'000'000U) {
+                mutexUnlock(&mutex_Misc);
+                tsl::hlp::waitWhileSleeping();
+                continue;
+            }
         }
         else if (R_SUCCEEDED(pcvCheck)) {
             pcvGetClockRate(PcvModule_CpuBus, &CPU_Hz);
@@ -570,7 +1419,7 @@ void Misc(void*) {
             pcvGetClockRate(PcvModule_EMC, &RAM_Hz);
         }
         
-        // Get sys-clk data
+        // Get sys-clk data (sys-clk-hoc: sys:clk service)
         if (R_SUCCEEDED(sysclkCheck)) {
             SysClkContext sysclkCTX;
             if (R_SUCCEEDED(sysclkIpcGetCurrentContext(&sysclkCTX))) {
@@ -580,16 +1429,109 @@ void Misc(void*) {
                 ramLoad[SysClkRamLoad_All] = sysclkCTX.ramLoad[SysClkRamLoad_All];
                 ramLoad[SysClkRamLoad_Cpu] = sysclkCTX.ramLoad[SysClkRamLoad_Cpu];
                 
-                // If using EOS, get voltages from sys-clk
-                if (isUsingEOS && realVoltsPolling) {
+                // Voltages from sys-clk (EOS/HOC path)
+                if (isUsingEOSorHOC && realVoltsPolling) {
                     realCPU_mV = sysclkCTX.realVolts[0]; 
                     realGPU_mV = sysclkCTX.realVolts[1]; 
                     realRAM_mV = sysclkCTX.realVolts[2]; 
                     realSOC_mV = sysclkCTX.realVolts[3];
                 }
+                // HOC die temps via sys-clk-hoc IPC (packed into perfConfId/realProfile/reserved[0])
+                if (usingHOC()) {
+                    componentCPU_mC = sysclkCTX.perfConfId;
+                    componentGPU_mC = (uint32_t)sysclkCTX.realProfile;
+                    componentRAM_mC = (uint32_t)sysclkCTX.reserved[0];
+                }
             }
         }
-        
+        // Get hoc-clk data (Horizon OC native hoc:clk IPC)
+        else if (R_SUCCEEDED(hocclkCheck)) {
+            HocClkContext hocclkCTX;
+            if (R_SUCCEEDED(hocclkIpcGetCurrentContext(&hocclkCTX))) {
+                realCPU_Hz = hocclkCTX.stable.realFreqs[HocClkModule_CPU];
+                realGPU_Hz = hocclkCTX.stable.realFreqs[HocClkModule_GPU];
+                realRAM_Hz = hocclkCTX.stable.realFreqs[HocClkModule_MEM];
+                ramLoad[SysClkRamLoad_All] = hocclkCTX.stable.partLoad[HocClkPartLoad_EMC];
+                ramLoad[SysClkRamLoad_Cpu] = hocclkCTX.stable.partLoad[HocClkPartLoad_EMCCpu];
+                // GPU load: use the sysmodule's 8-sample 60fps average, not a raw ioctl snapshot.
+                GPU_Load_u = hocclkCTX.stable.partLoad[HocClkPartLoad_GPU];
+                if (realVoltsPolling) {
+                    realCPU_mV = hocclkCTX.stable.voltages[HocClkVoltage_CPU];
+                    realGPU_mV = hocclkCTX.stable.voltages[HocClkVoltage_GPU];
+                    // voltages[] are in µV. Convert to mV then pack:
+                    // vdd2_mV * 100000 + vddq_mV * 10  (display unpacks same way as sys-clk-hoc)
+                    // Erista: EMCVDDQ == EMCVDD2 so skip VDDQ (matches sys-clk-hoc ipc_service.cpp)
+                    {
+                        const float    hoc_vdd2_mV = (float)hocclkCTX.stable.voltages[HocClkVoltage_EMCVDD2] / 1000.0f;
+                        const uint32_t hoc_vddq_mV = hocclkCTX.stable.voltages[HocClkVoltage_EMCVDDQ] / 1000u;
+                        realRAM_mV = (uint32_t)(hoc_vdd2_mV * 100000.0f);
+                        if (hoc_vddq_mV < 1000u) {  // Mariko: VDDQ is separate lower rail
+                            realRAM_mV += hoc_vddq_mV * 10u;
+                        }
+                    }
+                    realSOC_mV = hocclkCTX.stable.voltages[HocClkVoltage_SOC];
+                }
+                // HOC die temps directly from hoc-clk IPC (per-die SOCTHERM values)
+                componentCPU_mC = (uint32_t)hocclkCTX.stable.temps[HocClkThermalSensor_CPU];
+                componentGPU_mC = (uint32_t)hocclkCTX.stable.temps[HocClkThermalSensor_GPU];
+                componentRAM_mC = (uint32_t)hocclkCTX.stable.temps[HocClkThermalSensor_MEM];
+                // RAM bandwidth from hoc-clk IPC (pre-calculated MB/s values, indices 6-7 in stable).
+                // HocClkPartLoad_RamBWAll = 6, HocClkPartLoad_RamBWCpu = 7, both < HocClkPartLoadStable_EnumMax (10).
+                ramBW_MBs     = hocclkCTX.stable.partLoad[HocClkPartLoad_RamBWAll];
+                ramBW_MBs_cpu = hocclkCTX.stable.partLoad[HocClkPartLoad_RamBWCpu];
+            }
+        }
+
+        // Non-HOC: read CPU/GPU/MEM die temps directly from SOCTHERM hardware
+        if (!usingHOC()) Soctherm::Read();
+
+        // Read RAM bandwidth from ACTMON hardware only when hoc-clk IPC is not available.
+        // When hoc-clk is active, ramBW_MBs/ramBW_MBs_cpu are already populated above.
+        // Two separate hardware devices: MC_ALL = total, MC_CPU = CPU-only.
+        // GPU bandwidth is the derived remainder (mirrors sys-clk-hoc).
+        if (R_FAILED(hocclkCheck)) {
+            ramBW_MBs     = Actmon::Read();
+            ramBW_MBs_cpu = Actmon::ReadCpu();
+        }
+
+        // No clk sysmodule: measure real CPU/GPU/EMC clocks directly off the
+        // hardware (CAR PTO counters + GPU GPCPLL coefficient register).  When
+        // either IPC is available the real-freq fields are already populated
+        // above from the sysmodule context, so we skip this path.
+        // NOTE: Update() is called OUTSIDE mutex_Misc (below) — the sysmodule
+        // likewise holds no lock during PTO measurement, which involves
+        // svcSleepThread calls that must not block the mutex_Misc critical section.
+
+        // No sysmodule: back-fill ramLoad[All] and ramLoad[Cpu] from ACTMON so consumers
+        // see live EMC bus-utilisation values — the same metric sys-clk/hoc-clk would
+        // supply via IPC. Stored in permille (0-1000) to match the IPC contract.
+        // ramLoad[All] tracks MC_ALL; ramLoad[Cpu] tracks MC_CPU. The display path
+        // derives the GPU portion as (All - Cpu) just like sys-clk does internally.
+        // Formula (see Actmon header): load_permille = bw_MB_s * 62_500_000 / RAM_Hz
+        // All arithmetic in uint64_t — no ULL literal (uint64_t is unsigned long on AArch64).
+        if (R_FAILED(sysclkCheck) && R_FAILED(hocclkCheck)) {
+            if (RAM_Hz > 0) {
+                if (ramBW_MBs > 0) {
+                    const uint64_t permille = ((uint64_t)ramBW_MBs * (uint64_t)62500000 + (uint64_t)(RAM_Hz / 2)) / (uint64_t)RAM_Hz;
+                    ramLoad[SysClkRamLoad_All] = (uint32_t)(permille > 1000 ? 1000 : permille);
+                } else {
+                    ramLoad[SysClkRamLoad_All] = 0;
+                }
+                if (ramBW_MBs_cpu > 0) {
+                    const uint64_t permille_cpu = ((uint64_t)ramBW_MBs_cpu * (uint64_t)62500000 + (uint64_t)(RAM_Hz / 2)) / (uint64_t)RAM_Hz;
+                    // Clamp CPU to All to keep the derived GPU (All - Cpu) non-negative.
+                    uint32_t cpu_perm = (uint32_t)(permille_cpu > 1000 ? 1000 : permille_cpu);
+                    if (cpu_perm > ramLoad[SysClkRamLoad_All]) cpu_perm = ramLoad[SysClkRamLoad_All];
+                    ramLoad[SysClkRamLoad_Cpu] = cpu_perm;
+                } else {
+                    ramLoad[SysClkRamLoad_Cpu] = 0;
+                }
+            } else {
+                ramLoad[SysClkRamLoad_All] = 0;
+                ramLoad[SysClkRamLoad_Cpu] = 0;
+            }
+        }
+
         // Read voltages directly if not using EOS
         if (canReadVoltages) {
             RgltrSession session;
@@ -688,9 +1630,20 @@ void Misc(void*) {
             }
         }
         
-        // GPU Load
-        if (R_SUCCEEDED(nvCheck) && GPULoadPerFrame) {
-            nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &GPU_Load_u);
+        // GPU Load — ioctl fallback. Suppressed only when hoc-clk (native) is active,
+        // because sys-clk-hoc's sys:clk wire has no GPU load field and still needs the ioctl.
+        // Uses a lightweight 4-sample EMA (alpha=0.4) so a single outlier frame
+        // (PMU spike or clock-gate boundary read) can't immediately slam the display
+        // to 0% or 99%. Zeros are discarded — a gated GPU sample is not a real load reading.
+        if (R_SUCCEEDED(nvCheck) && GPULoadPerFrame && R_FAILED(hocclkCheck)) {
+            static u32 gpu_ema = 0;
+            u32 gpu_sample = 0;
+            if (R_SUCCEEDED(nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &gpu_sample)) && gpu_sample > 0) {
+                // EMA: new = 0.4*sample + 0.6*prev  (integer, scaled *10 to keep precision)
+                gpu_ema = (4u * gpu_sample + 6u * (gpu_ema ? gpu_ema : gpu_sample)) / 10u;
+                GPU_Load_u = gpu_ema;
+            }
+            // If sample == 0 (GPU clock-gated): keep last EMA value — not a real zero.
         }
         
         // FPS - with proper null checks
@@ -720,7 +1673,21 @@ void Misc(void*) {
         }
         
         mutexUnlock(&mutex_Misc);
-        
+
+        // Real-clock PTO measurement runs OUTSIDE the mutex — exactly as the
+        // sysmodule does it. Each MeasureHz call sleeps ~510 µs via svcSleepThread;
+        // holding mutex_Misc across those sleeps blocked Micro's draw CS for up to
+        // ~1.5 ms once per second and caused the intermittent close-time hang.
+        // realCPU/GPU/RAM_Hz are u32 globals; AArch64 word stores are naturally
+        // atomic, and one-cycle stale values are fine for display.
+        if (R_FAILED(sysclkCheck) && R_FAILED(hocclkCheck)) {
+            // waitWhileSleeping() at the top of the loop skips the mutex body,
+            // but RealClocks::Update runs AFTER mutexUnlock — outside that guard.
+            // Add an explicit check here: if sleep was entered during the body
+            // (rare race window), skip the PTO measurement entirely.
+            if (!tsl::hlp::isSystemSleeping()) RealClocks::Update();
+        }
+
     } while (!leventWait(&threadexit, timeout_ns));
     
     // Cleanup voltage reading if initialized
@@ -732,6 +1699,12 @@ void Misc(void*) {
 void Misc2(void*) {
     u32 dummy = 0;
     do {
+        // Halt during shallow sleep — all the calls below are IPC into
+        // audsnoop, mmu (multimedia clocks), and nifm (network) sysmodules.
+        // None of them produce meaningful new data while sleeping, and each
+        // wake costs both this thread's CPU and the target sysmodule's.
+        if (tsl::hlp::waitWhileSleeping()) continue;
+
         //DSP
         if (R_SUCCEEDED(audsnoopCheck)) audsnoopGetDspUsage(&DSP_Load_u);
 
@@ -750,11 +1723,11 @@ void Misc2(void*) {
 }
 
 void Misc3(void*) {
-    const bool isUsingEOS = usingEOS();
+    const bool isUsingEOSorHOC = g_isUsingEOSorHOC;  // cached at init — no IPC cost
     
     // Initialize voltage reading if needed
     bool canReadVoltages = false;
-    if (!isUsingEOS && realVoltsPolling) {
+    if (!isUsingEOSorHOC && realVoltsPolling) {
         canReadVoltages = R_SUCCEEDED(rgltrInitialize());
         if (!canReadVoltages) {
             realVoltsPolling = false;
@@ -762,22 +1735,124 @@ void Misc3(void*) {
     }
     
     do {
+        // Halt during shallow sleep — sys-clk-hoc/hoc-clk IPC and rgltr
+        // voltage reads are wasted while the SoC is power-managed.
+        if (tsl::hlp::waitWhileSleeping()) continue;
+
         mutexLock(&mutex_Misc);
+        // Re-check after acquiring the lock — bail out if sleep entered
+        // between the guard and here to avoid blocking IPC during suspend.
+        if (tsl::hlp::isSystemSleeping()) { mutexUnlock(&mutex_Misc); continue; }
         
-        // Get sys-clk data
+        // Get sys-clk data (sys-clk-hoc: sys:clk service)
         if (R_SUCCEEDED(sysclkCheck)) {
             SysClkContext sysclkCTX;
             if (R_SUCCEEDED(sysclkIpcGetCurrentContext(&sysclkCTX))) {
                 ramLoad[SysClkRamLoad_All] = sysclkCTX.ramLoad[SysClkRamLoad_All];
                 ramLoad[SysClkRamLoad_Cpu] = sysclkCTX.ramLoad[SysClkRamLoad_Cpu];
                 
-                // Get voltages from sys-clk if using EOS
-                if (isUsingEOS && realVoltsPolling) {
+                // Voltages from sys-clk (EOS/HOC path)
+                if (isUsingEOSorHOC && realVoltsPolling) {
                     realCPU_mV = sysclkCTX.realVolts[0]; 
                     realGPU_mV = sysclkCTX.realVolts[1]; 
                     realRAM_mV = sysclkCTX.realVolts[2]; 
                     realSOC_mV = sysclkCTX.realVolts[3];
                 }
+                // HOC die temps via sys-clk-hoc IPC (packed into perfConfId/realProfile/reserved[0])
+                if (usingHOC()) {
+                    componentCPU_mC = sysclkCTX.perfConfId;
+                    componentGPU_mC = (uint32_t)sysclkCTX.realProfile;
+                    componentRAM_mC = (uint32_t)sysclkCTX.reserved[0];
+                }
+            }
+        }
+        // Get hoc-clk data (Horizon OC native hoc:clk IPC)
+        else if (R_SUCCEEDED(hocclkCheck)) {
+            HocClkContext hocclkCTX;
+            if (R_SUCCEEDED(hocclkIpcGetCurrentContext(&hocclkCTX))) {
+                ramLoad[SysClkRamLoad_All] = hocclkCTX.stable.partLoad[HocClkPartLoad_EMC];
+                ramLoad[SysClkRamLoad_Cpu] = hocclkCTX.stable.partLoad[HocClkPartLoad_EMCCpu];
+                // GPU load: use the sysmodule's 8-sample 60fps average, not a raw ioctl snapshot.
+                GPU_Load_u = hocclkCTX.stable.partLoad[HocClkPartLoad_GPU];
+                if (realVoltsPolling) {
+                    realCPU_mV = hocclkCTX.stable.voltages[HocClkVoltage_CPU];
+                    realGPU_mV = hocclkCTX.stable.voltages[HocClkVoltage_GPU];
+                    // voltages[] are in µV. Convert to mV then pack:
+                    // vdd2_mV * 100000 + vddq_mV * 10  (display unpacks same way as sys-clk-hoc)
+                    // Erista: EMCVDDQ == EMCVDD2 so skip VDDQ (matches sys-clk-hoc ipc_service.cpp)
+                    {
+                        const float    hoc_vdd2_mV = (float)hocclkCTX.stable.voltages[HocClkVoltage_EMCVDD2] / 1000.0f;
+                        const uint32_t hoc_vddq_mV = hocclkCTX.stable.voltages[HocClkVoltage_EMCVDDQ] / 1000u;
+                        realRAM_mV = (uint32_t)(hoc_vdd2_mV * 100000.0f);
+                        if (hoc_vddq_mV < 1000u) {  // Mariko: VDDQ is separate lower rail
+                            realRAM_mV += hoc_vddq_mV * 10u;
+                        }
+                    }
+                    realSOC_mV = hocclkCTX.stable.voltages[HocClkVoltage_SOC];
+                }
+                // HOC die temps directly from hoc-clk IPC (per-die SOCTHERM values)
+                componentCPU_mC = (uint32_t)hocclkCTX.stable.temps[HocClkThermalSensor_CPU];
+                componentGPU_mC = (uint32_t)hocclkCTX.stable.temps[HocClkThermalSensor_GPU];
+                componentRAM_mC = (uint32_t)hocclkCTX.stable.temps[HocClkThermalSensor_MEM];
+
+                // HocClkPartLoad_RamBWAll = 6, HocClkPartLoad_RamBWCpu = 7, both < HocClkPartLoadStable_EnumMax (10).
+                ramBW_MBs     = hocclkCTX.stable.partLoad[HocClkPartLoad_RamBWAll];
+                ramBW_MBs_cpu = hocclkCTX.stable.partLoad[HocClkPartLoad_RamBWCpu];
+            }
+        }
+
+        // Non-HOC: read CPU/GPU/MEM die temps directly from SOCTHERM hardware
+        if (!usingHOC()) Soctherm::Read();
+
+        // Read EMC frequency so ACTMON can enable its device and so the back-fill
+        // formula below has a valid divisor. Only EMC is needed here — CPU/GPU
+        // frequencies are not used in Misc3's display path.
+        if (R_SUCCEEDED(clkrstCheck)) {
+            ClkrstSession clkSession;
+            if (R_SUCCEEDED(clkrstOpenSession(&clkSession, PcvModuleId_EMC, 3))) {
+                clkrstGetClockRate(&clkSession, &RAM_Hz);
+                clkrstCloseSession(&clkSession);
+            }
+            // hoc-clk sentinel: EMC below sleep floor means sleep was entered mid-IPC.
+            if (RAM_Hz > 0 && RAM_Hz <= 665'000'000U) {
+                mutexUnlock(&mutex_Misc);
+                tsl::hlp::waitWhileSleeping();
+                continue;
+            }
+        }
+        else if (R_SUCCEEDED(pcvCheck)) {
+            pcvGetClockRate(PcvModule_EMC, &RAM_Hz);
+        }
+
+        // Read RAM bandwidth from ACTMON hardware only when hoc-clk IPC is not available.
+        // When hoc-clk is active, ramBW_MBs/ramBW_MBs_cpu are already populated above.
+        if (R_FAILED(hocclkCheck)) {
+            ramBW_MBs     = Actmon::Read();
+            ramBW_MBs_cpu = Actmon::ReadCpu();
+        }
+
+        // No sysmodule: back-fill ramLoad[] from ACTMON so FPS_Graph sees live
+        // EMC bus-utilisation values — the same metric sys-clk/hoc-clk supplies
+        // via IPC. Identical logic to Misc; see that block for formula derivation.
+        if (R_FAILED(sysclkCheck) && R_FAILED(hocclkCheck)) {
+            if (RAM_Hz > 0) {
+                if (ramBW_MBs > 0) {
+                    const uint64_t permille = ((uint64_t)ramBW_MBs * (uint64_t)62500000 + (uint64_t)(RAM_Hz / 2)) / (uint64_t)RAM_Hz;
+                    ramLoad[SysClkRamLoad_All] = (uint32_t)(permille > 1000 ? 1000 : permille);
+                } else {
+                    ramLoad[SysClkRamLoad_All] = 0;
+                }
+                if (ramBW_MBs_cpu > 0) {
+                    const uint64_t permille_cpu = ((uint64_t)ramBW_MBs_cpu * (uint64_t)62500000 + (uint64_t)(RAM_Hz / 2)) / (uint64_t)RAM_Hz;
+                    uint32_t cpu_perm = (uint32_t)(permille_cpu > 1000 ? 1000 : permille_cpu);
+                    if (cpu_perm > ramLoad[SysClkRamLoad_All]) cpu_perm = ramLoad[SysClkRamLoad_All];
+                    ramLoad[SysClkRamLoad_Cpu] = cpu_perm;
+                } else {
+                    ramLoad[SysClkRamLoad_Cpu] = 0;
+                }
+            } else {
+                ramLoad[SysClkRamLoad_All] = 0;
+                ramLoad[SysClkRamLoad_Cpu] = 0;
             }
         }
         
@@ -867,9 +1942,16 @@ void Misc3(void*) {
             }
         }
         
-        // GPU Load
-        if (R_SUCCEEDED(nvCheck)) {
-            nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &GPU_Load_u);
+        // GPU Load — ioctl fallback. Suppressed only when hoc-clk (native) is active.
+        // Same EMA smoothing as the per-frame Misc path — prevents a single gated or
+        // spiked sample from instantly clobbering the display value.
+        if (R_SUCCEEDED(nvCheck) && R_FAILED(hocclkCheck)) {
+            static u32 gpu_ema3 = 0;
+            u32 gpu_sample = 0;
+            if (R_SUCCEEDED(nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &gpu_sample)) && gpu_sample > 0) {
+                gpu_ema3 = (4u * gpu_sample + 6u * (gpu_ema3 ? gpu_ema3 : gpu_sample)) / 10u;
+                GPU_Load_u = gpu_ema3;
+            }
         }
         
         mutexUnlock(&mutex_Misc);
@@ -945,6 +2027,13 @@ void CheckCore(void* idletick_ptr) {
     const uint64_t timeout_ns = 1'000'000'000ULL / TeslaFPS;
     std::atomic<uint64_t>* idletick = (std::atomic<uint64_t>*)idletick_ptr;
     while (true) {
+        // Sleep gate: idle-tick deltas measured during sleep are meaningless.
+        // Use a finite timeout matching the normal cadence so a threadexit
+        // signal that arrives while sleeping is caught within one cycle.
+        if (tsl::hlp::waitWhileSleeping(timeout_ns)) {
+            if (!leventWait(&threadexit, 0)) continue; // still running
+            return; // threadexit was signalled while sleeping
+        }
         uint64_t idletick_a;
         uint64_t idletick_b;
         svcGetInfo(&idletick_b, InfoType_IdleTickCount, INVALID_HANDLE, -1);
@@ -958,6 +2047,10 @@ void CheckCore(void* idletick_ptr) {
 
 //Start reading all stats
 void StartThreads() {
+    // Cache module-detection bools once, before any thread reads them.
+    // sysclkCheck / hocclkCheck are finalized by initServices() before StartThreads() is called.
+    initModuleDetection();
+
     // Clear the thread exit event for new threads
     leventClear(&threadexit);
 
@@ -1387,6 +2480,7 @@ struct FullSettings {
     bool showRDSD;
     bool useDynamicColors;
     bool disableScreenshots;
+    uint16_t backgroundColor;
     uint16_t separatorColor;
     uint16_t catColor1;
     uint16_t catColor2;
@@ -1399,18 +2493,38 @@ struct MiniSettings {
     bool realVolts;
     bool showLabels;
     bool showFullCPU;
+    bool showFullCPUMaxCore012; // true = brackets show [max(c0,c1,c2) c3] instead of [c0 c1 c2 c3]
+    bool showStackedFullCPU; // true = brackets top, freq bottom (stacked); false = [brackets]@freq inline
     bool showFullResolution;
+    bool showPrimaryResolution;
     bool showFanPercentage;
     bool showSOCVoltage;
+    bool showStackedFanSOC;  // true = fan row1, volt row2 (stacked); false = fan+volt inline
+    bool showStackedVDDQ;   // true = VDD2 row1, VDDQ row2 stacked (Mariko only); false = VDD2+VDDQ inline
+    bool showCPUTemp;           // show CPU die temp below CPU volt
+    bool showGPUTemp;           // show GPU die temp below GPU volt
+    bool showRAMTemp;           // show RAM die temp (next to VDDQ)
+    bool showStackedCPUTemp; // true = split row below volt (stacked); false = CPU temp inline
+    bool showStackedGPUTemp; // true = split row below volt (stacked); false = GPU temp inline
+    bool showStackedRAMTemp; // true = stacked separate row; false = RAM temp inline
+    bool voltageAtEndCPU;       // true = volt at end (below/after temp; swap positions)
+    bool voltageAtEndGPU;       // true = volt at end
+    bool voltageAtEndRAM;       // true = volt at end
+    bool voltageAtEndTMP;       // true = SOC volt at top, fan at bottom (swapped)
     bool useDynamicColors;
     bool showVDDQ;
     bool showVDD2;
     bool decimalVDD2;
     bool showDTC;
     bool useDTCSymbol;
-    std::string dtcFormat;
+    bool useIntegerFPS;
+    std::string dtcFormat;   // derived at load time: format1 + DIVIDER + format2 (or just format1 when format2 is "None")
+    std::string dtcFormat1;  // top half (always present)
+    std::string dtcFormat2;  // bottom half (== ult::OPTION_SYMBOL means "None" — no bottom half, no divider)
     size_t handheldFontSize;
     size_t dockedFontSize;
+    size_t docked1080pFontSize;  // font size used when use1080pDocked is true and console is docked
+    bool use1080pDocked;         // when docked: use 1080p pixel-perfect layer + docked1080pFontSize
     size_t spacing;
     uint16_t backgroundColor;
     uint16_t focusBackgroundColor;
@@ -1420,9 +2534,15 @@ struct MiniSettings {
     std::string show;
     bool showRAMLoad;
     bool showRAMLoadCPUGPU;
+    bool showStackedRAMLoadCPUGPU; // true = split rows (stacked); false = [cpu% gpu%]total%@freq inline
+    bool showRAMBandwidth;        // show RAM bandwidth (GB/s) from ACTMON
+    bool showStackedRAMBandwidth; // true = BW on its own top row; false = BW inline before load
+    bool showComponentTemps;    // dual-row TMP: show CPU/GPU/RAM die temps row
+    bool showSocPcbSkinTemps;   // show SOC/PCB/Skin temps row (default: true)
     bool invertBatteryDisplay;
+    bool showStackedBAT;   // true = draw on top, pct on bottom stacked; false = draw+pct inline
+    bool showStackedDTC;   // true = split DTC at DIVIDER_SYMBOL into 2 stacked rows; false = single line
     bool disableScreenshots;
-    bool sleepExit;
     //int setPos;
     int frameOffsetX;
     int frameOffsetY;
@@ -1434,39 +2554,74 @@ struct MicroSettings {
     bool realFrequencies;
     bool realVolts; 
     bool showFullCPU;
+    bool showFullCPUMaxCore012; // true = brackets show [max(c0,c1,c2) c3] instead of [c0 c1 c2 c3]
+    bool showStackedFullCPU; // true = brackets top, freq bottom (stacked); false = [brackets]@freq inline
     bool showFullResolution;
+    bool showPrimaryResolution;
     bool showSOCVoltage;
+    bool showStackedFanSOC;  // true = fan row1, volt row2 (stacked); false = fan+volt inline
+    bool showStackedVDDQ;   // true = VDD2 row1, VDDQ row2 stacked (Mariko only); false = VDD2+VDDQ inline
+    bool showCPUTemp;           // show CPU die temp below CPU volt
+    bool showGPUTemp;           // show GPU die temp below GPU volt
+    bool showRAMTemp;           // show RAM die temp (next to VDDQ)
+    bool showStackedCPUTemp; // true = split row below volt (stacked); false = CPU temp inline
+    bool showStackedGPUTemp; // true = split row below volt (stacked); false = GPU temp inline
+    bool showStackedRAMTemp; // true = stacked separate row; false = RAM temp inline
+    bool voltageAtEndCPU;       // true = volt at end (below/after temp; swap positions)
+    bool voltageAtEndGPU;       // true = volt at end
+    bool voltageAtEndRAM;       // true = volt at end
+    bool voltageAtEndTMP;       // true = SOC volt at top, fan at bottom (swapped)
+    bool showFanPercentage;
     bool useDynamicColors;
     bool showVDDQ;
     bool showVDD2;
     bool decimalVDD2;
     bool showDTC;
     bool useDTCSymbol;
-    std::string dtcFormat;
+    bool useIntegerFPS;
+    std::string dtcFormat;   // derived at load time: format1 + DIVIDER + format2 (or just format1 when format2 is "None")
+    std::string dtcFormat1;  // top half (always present)
+    std::string dtcFormat2;  // bottom half (== ult::OPTION_SYMBOL means "None" — no bottom half, no divider)
     bool invertBatteryDisplay;
+    bool showStackedBAT;   // true = draw on top, pct on bottom stacked; false = draw+pct inline
+    bool showStackedDTC;   // true = split DTC at DIVIDER_SYMBOL into 2 stacked rows; false = single line
     size_t handheldFontSize;
     size_t dockedFontSize;
+    size_t docked1080pFontSize;  // font size used when use1080pDocked is true and console is docked
+    bool use1080pDocked;         // when docked: use 1080p pixel-perfect layer + docked1080pFontSize
     uint8_t alignTo;
     uint16_t backgroundColor;
+    uint16_t focusBackgroundColor;  // bar color while Plus is held (focus/reposition mode)
     uint16_t separatorColor;
     uint16_t catColor;
     uint16_t textColor;
     std::string show;
     bool showRAMLoad;
+    bool showRAMLoadCPUGPU;      // show CPU/GPU load breakdown
+    bool showStackedRAMLoadCPUGPU; // true = split rows (stacked); false = [cpu% gpu%]total%@freq inline
+    bool showRAMBandwidth;        // show RAM bandwidth (GB/s) from ACTMON direct read
+    bool showStackedRAMBandwidth; // true = BW on its own top row; false = BW inline before load
+    bool showComponentTemps;    // show CPU/GPU/RAM die temps (default: false)
+    bool showSocPcbSkinTemps;   // show SOC/PCB/Skin temps (default: true)
+    bool showStackedTemps;   // true = temp groups on separate rows (stacked); false = one line with divider
     bool setPosBottom;
     bool disableScreenshots;
-    bool sleepExit;
+    uint8_t horizontalPadding;  // 0-10 px, left/right gap from screen edge to text; default 8
+    uint8_t verticalPadding;    // 0-8 px, gap above/below text within bar; default 2
+    uint8_t labelPadding;       // 2-8 px, gap between element label and its value; 0 = auto (font-size-based)
 };
 
 struct FpsCounterSettings {
     uint8_t refreshRate;
     size_t handheldFontSize;
     size_t dockedFontSize;
+    size_t docked1080pFontSize;  // font size used when use1080pDocked is true and console is docked
+    bool use1080pDocked;         // when docked: use 1080p pixel-perfect layer + docked1080pFontSize
     uint16_t backgroundColor;
     uint16_t focusBackgroundColor;
     uint16_t textColor;
     //int setPos;
-    bool useIntegerCounter;
+    bool useIntegerFPS;
     bool disableScreenshots;
     int frameOffsetX;
     int frameOffsetY;
@@ -1490,6 +2645,7 @@ struct FpsGraphSettings {
     uint16_t catColor;
     //int setPos;
     bool useDynamicColors;
+    bool useIntegerFPS;
     bool disableScreenshots;
     int frameOffsetX;
     int frameOffsetY;
@@ -1515,38 +2671,63 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     // Initialize defaults
     settings->realFrequencies = true;
     settings->realVolts = true;
-    settings->showFullCPU = false;
+    settings->showFullCPU = true;
+    settings->showFullCPUMaxCore012 = true;
+    settings->showStackedFullCPU = false;
     settings->showFullResolution = true;
+    settings->showPrimaryResolution = false;
     settings->showFanPercentage = true;
     settings->useDynamicColors = true;
-    settings->showFullCPU = false;
-    settings->showSOCVoltage = false;
-    settings->showVDDQ = false;
+    settings->showSOCVoltage = true;
+    settings->showStackedFanSOC = true;
+    settings->showStackedVDDQ = true;
+    settings->showCPUTemp = false;
+    settings->showGPUTemp = false;
+    settings->showRAMTemp = false;
+    settings->showStackedCPUTemp = true;
+    settings->showStackedGPUTemp = true;
+    settings->showStackedRAMTemp = true;
+    settings->voltageAtEndCPU = false;
+    settings->voltageAtEndGPU = true;
+    settings->voltageAtEndRAM = false;
+    settings->voltageAtEndTMP = true;
+    settings->showVDDQ = true;
     settings->showVDD2 = true;
     settings->decimalVDD2 = false;
     settings->showDTC = true;
     settings->useDTCSymbol = true;
-    settings->dtcFormat = "%m-%d-%Y%H:%M:%S";//"%Y-%m-%d %I:%M:%S %p";
+    settings->useIntegerFPS = false;
+    settings->dtcFormat1 = "%a, %b %d";
+    settings->dtcFormat2 = "%l:%M:%S %p";
+    settings->dtcFormat  = settings->dtcFormat1 + ult::DIVIDER_SYMBOL + settings->dtcFormat2;
     settings->handheldFontSize = 15;
     settings->dockedFontSize = 15;
+    settings->docked1080pFontSize = 20;  // ~15 × 1.5 — visually matches 720p docked size
+    settings->use1080pDocked = true;
     settings->spacing = 8;
-    convertStrToRGBA4444("#0009", &(settings->backgroundColor));
+    convertStrToRGBA4444("#000B", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
-    convertStrToRGBA4444("#888F", &(settings->separatorColor));
+    convertStrToRGBA4444("#2DFF", &(settings->separatorColor));
     convertStrToRGBA4444("#2DFF", &(settings->catColor));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
     settings->show = "DTC+BAT+CPU+GPU+RAM+TMP+FPS+RES";
     settings->showLabels = true;
     settings->showRAMLoad = true;
     settings->showRAMLoadCPUGPU = false;
+    settings->showStackedRAMLoadCPUGPU = true;
+    settings->showRAMBandwidth = true;
+    settings->showStackedRAMBandwidth = true;
+    settings->showComponentTemps = true;
+    settings->showSocPcbSkinTemps = true;
     settings->invertBatteryDisplay = true;
-    settings->refreshRate = 1;
+    settings->showStackedBAT = false;
+    settings->showStackedDTC = false;
+    settings->refreshRate = 3;
     settings->disableScreenshots = false;
-    settings->sleepExit = false;
     //settings->setPos = 0;
-    settings->frameOffsetX = 10;
-    settings->frameOffsetY = 10;
-    settings->framePadding = 10;
+    settings->frameOffsetX = 0;
+    settings->frameOffsetY = 0;
+    settings->framePadding = 4;
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -1594,9 +2775,10 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     }
     
     // Process font sizes with shared bounds
-    static constexpr long minFontSize = 8;
-    static constexpr long maxFontSize = 22;
-    
+    static constexpr long minFontSize    = 8;
+    static constexpr long maxFontSize    = 22;  // 720p cap
+    static constexpr long max1080pFont   = 33;  // 1080p pixel-perfect cap (~1.5× 720p max)
+
     it = section.find("handheld_font_size");
     if (it != section.end()) {
         settings->handheldFontSize = std::clamp(atol(it->second.c_str()), minFontSize, maxFontSize);
@@ -1605,6 +2787,18 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     it = section.find("docked_font_size");
     if (it != section.end()) {
         settings->dockedFontSize = std::clamp(atol(it->second.c_str()), minFontSize, maxFontSize);
+    }
+
+    it = section.find("docked_1080p_font_size");
+    if (it != section.end()) {
+        settings->docked1080pFontSize = std::clamp(atol(it->second.c_str()), minFontSize, max1080pFont);
+    }
+
+    it = section.find("use_1080p_docked");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->use1080pDocked = (key != "FALSE");
     }
 
     it = section.find("spacing");
@@ -1662,11 +2856,32 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         settings->showFullCPU = !(key == "FALSE");
     }
 
+    it = section.find("show_full_cpu_max_core_012");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showFullCPUMaxCore012 = !(key == "FALSE");
+    }
+
+    it = section.find("show_stacked_full_cpu");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedFullCPU = (key == "TRUE");
+    }
+
     it = section.find("show_full_res");
     if (it != section.end()) {
         key = it->second;
         convertToUpper(key);
         settings->showFullResolution = !(key == "FALSE");
+    }
+
+    it = section.find("show_primary_res");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showPrimaryResolution = (key == "TRUE");
     }
 
     it = section.find("show_soc_voltage");
@@ -1675,6 +2890,71 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         convertToUpper(key);
         settings->showSOCVoltage = !(key == "FALSE");
     }
+
+    it = section.find("show_stacked_fan_soc");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedFanSOC = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_vddq");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedVDDQ = (key == "TRUE");
+    }
+
+    it = section.find("show_cpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showCPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_gpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showGPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_ram_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showRAMTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_cpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedCPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_gpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedGPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_ram_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedRAMTemp = (key == "TRUE");
+    }
+
+    it = section.find("voltage_at_end_cpu");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndCPU = (key == "TRUE"); }
+    it = section.find("voltage_at_end_gpu");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndGPU = (key == "TRUE"); }
+    it = section.find("voltage_at_end_ram");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndRAM = (key == "TRUE"); }
+    it = section.find("voltage_at_end_tmp");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndTMP = (key == "TRUE"); }
 
     it = section.find("use_dynamic_colors");
     if (it != section.end()) {
@@ -1718,10 +2998,43 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         settings->useDTCSymbol = !(key == "FALSE");
     }
 
-    it = section.find("dtc_format");
+    it = section.find("integer_fps");
     if (it != section.end()) {
         key = it->second;
-        settings->dtcFormat = std::move(key);
+        convertToUpper(key);
+        settings->useIntegerFPS = (key != "FALSE");
+    }
+
+    // DTC format: prefer the new two-part keys (dtc_format_1, dtc_format_2). Fall back
+    // to splitting the legacy dtc_format key at DIVIDER_SYMBOL so existing user configs
+    // keep working. Final dtcFormat is rebuilt as format1 + DIVIDER + format2 (or just
+    // format1 when format2 is OPTION_SYMBOL / "None"), so the rendering pipeline (which
+    // already splits dtcFormat at DIVIDER_SYMBOL for stacking) doesn't need to change.
+    {
+        const auto it1 = section.find("dtc_format_1");
+        const auto it2 = section.find("dtc_format_2");
+        const auto itLegacy = section.find("dtc_format");
+        if (it1 != section.end() || it2 != section.end()) {
+            if (it1 != section.end()) settings->dtcFormat1 = it1->second;
+            if (it2 != section.end()) settings->dtcFormat2 = it2->second;
+        } else if (itLegacy != section.end()) {
+            // Back-compat: split the legacy combined value at DIVIDER_SYMBOL.
+            const std::string legacy = itLegacy->second;
+            const size_t divPos = legacy.find(ult::DIVIDER_SYMBOL);
+            if (divPos != std::string::npos) {
+                settings->dtcFormat1 = legacy.substr(0, divPos);
+                settings->dtcFormat2 = legacy.substr(divPos + ult::DIVIDER_SYMBOL.length());
+            } else {
+                settings->dtcFormat1 = legacy;
+                settings->dtcFormat2 = ult::OPTION_SYMBOL;
+            }
+        }
+        // Rebuild the runtime dtcFormat that the rendering code consumes.
+        if (settings->dtcFormat2 == ult::OPTION_SYMBOL || settings->dtcFormat2.empty()) {
+            settings->dtcFormat = settings->dtcFormat1;
+        } else {
+            settings->dtcFormat = settings->dtcFormat1 + ult::DIVIDER_SYMBOL + settings->dtcFormat2;
+        }
     }
 
     // Process show string
@@ -1748,12 +3061,66 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         settings->showRAMLoadCPUGPU = (key != "FALSE");
     }
 
+    it = section.find("show_stacked_ram_load_cpu_gpu");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedRAMLoadCPUGPU = (key == "TRUE");
+    }
+
+    it = section.find("show_ram_bandwidth");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showRAMBandwidth = (key != "FALSE");
+    }
+
+    it = section.find("show_stacked_ram_bandwidth");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedRAMBandwidth = (key == "TRUE");
+    }
+
+    // Process CPU/GPU/RAM component temps flag (dual-row TMP only)
+    it = section.find("show_component_temps");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showComponentTemps = (key != "FALSE");
+    }
+
+    // Process SOC/PCB/Skin temps flag
+    it = section.find("show_soc_pcb_skin_temps");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showSocPcbSkinTemps = (key != "FALSE");
+    }
+    // Enforce mutual exclusivity: at least one must be on
+    if (!settings->showComponentTemps && !settings->showSocPcbSkinTemps)
+        settings->showSocPcbSkinTemps = true;
+
     // Invert the battery display value
     it = section.find("invert_battery_display");
     if (it != section.end()) {
         key = it->second;
         convertToUpper(key);
         settings->invertBatteryDisplay = (key != "FALSE");
+    }
+
+    it = section.find("show_stacked_bat");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedBAT = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_dtc");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedDTC = (key == "TRUE");
     }
 
     // Process disable screenshots
@@ -1764,14 +3131,6 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         settings->disableScreenshots = (key != "FALSE");
     }
 
-    // Process exit on sleep
-    it = section.find("sleep_exit");
-    if (it != section.end()) {
-        key = it->second;
-        convertToUpper(key);
-        settings->sleepExit = (key != "FALSE");
-    }
-    
     // Process alignment settings
     //it = section.find("layer_width_align");
     //if (it != section.end()) {
@@ -1815,30 +3174,63 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
     // Initialize defaults
     settings->realFrequencies = true;
     settings->realVolts = true;
-    settings->showFullCPU = false;
+    settings->showFullCPU = true;
+    settings->showFullCPUMaxCore012 = false;
+    settings->showStackedFullCPU = true;
     settings->showFullResolution = false;
+    settings->showPrimaryResolution = true;
     settings->showSOCVoltage = true;
+    settings->showStackedFanSOC = true;  // default: fan+volt stacked
+    settings->showStackedVDDQ = true;   // default: VDD2+VDDQ stacked
+    settings->showCPUTemp = true;
+    settings->showGPUTemp = true;
+    settings->showRAMTemp = true;
+    settings->showStackedCPUTemp = true;
+    settings->showStackedGPUTemp = true;
+    settings->showStackedRAMTemp = true;
+    settings->voltageAtEndCPU = true;
+    settings->voltageAtEndGPU = true;
+    settings->voltageAtEndRAM = true;
+    settings->voltageAtEndTMP = true;
+    settings->showFanPercentage = true;
     settings->useDynamicColors = true;
     settings->showVDDQ = false;
     settings->showVDD2 = true;
     settings->decimalVDD2 = false;
     settings->showDTC = true;
     settings->useDTCSymbol = true;
-    settings->dtcFormat = "%H:%M:%S";//"%Y-%m-%d %I:%M:%S %p";
-    settings->invertBatteryDisplay = false;
+    settings->useIntegerFPS = true;
+    settings->dtcFormat1 = "%a, %b %d";
+    settings->dtcFormat2 = "%l:%M:%S %p";
+    settings->dtcFormat  = settings->dtcFormat1 + ult::DIVIDER_SYMBOL + settings->dtcFormat2;
+    settings->invertBatteryDisplay = true;
+    settings->showStackedBAT = true;
+    settings->showStackedDTC = true;
     settings->handheldFontSize = 15;
     settings->dockedFontSize = 15;
+    settings->docked1080pFontSize = 20;  // ~15 × 1.5 — visually matches 720p docked size
+    settings->use1080pDocked = true;
     settings->alignTo = 1; // CENTER
-    convertStrToRGBA4444("#0009", &(settings->backgroundColor));
-    convertStrToRGBA4444("#888F", &(settings->separatorColor));
+    convertStrToRGBA4444("#000B", &(settings->backgroundColor));
+    convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
+    convertStrToRGBA4444("#2DFF", &(settings->separatorColor));
     convertStrToRGBA4444("#2DFF", &(settings->catColor));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
-    settings->show = "FPS+CPU+GPU+RAM+SOC+BAT+DTC";
+    settings->show = "FPS+CPU+GPU+RAM+TMP+BAT+DTC";
     settings->showRAMLoad = true;
+    settings->showRAMLoadCPUGPU = false;
+    settings->showStackedRAMLoadCPUGPU = true;
+    settings->showRAMBandwidth = true;
+    settings->showStackedRAMBandwidth = true;
+    settings->showComponentTemps = true;
+    settings->showSocPcbSkinTemps = true;
+    settings->showStackedTemps = true;
     settings->setPosBottom = false;
     settings->disableScreenshots = false;
-    settings->sleepExit = false;
-    settings->refreshRate = 1;
+    settings->refreshRate = 3;
+    settings->horizontalPadding = 8;
+    settings->verticalPadding   = 5;
+    settings->labelPadding      = 8;
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -1891,6 +3283,20 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
         convertToUpper(key);
         settings->showFullCPU = (key == "TRUE");
     }
+
+    it = section.find("show_full_cpu_max_core_012");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showFullCPUMaxCore012 = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_full_cpu");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedFullCPU = (key == "TRUE");
+    }
     
     it = section.find("show_full_res");
     if (it != section.end()) {
@@ -1899,12 +3305,84 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
         settings->showFullResolution = (key == "TRUE");
     }
 
+    it = section.find("show_primary_res");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showPrimaryResolution = (key == "TRUE");
+    }
+
     it = section.find("show_soc_voltage");
     if (it != section.end()) {
         key = it->second;
         convertToUpper(key);
         settings->showSOCVoltage = !(key == "FALSE");
     }
+
+    it = section.find("show_stacked_fan_soc");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedFanSOC = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_vddq");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedVDDQ = (key == "TRUE");
+    }
+
+    it = section.find("show_cpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showCPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_gpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showGPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_ram_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showRAMTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_cpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedCPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_gpu_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedGPUTemp = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_ram_temp");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedRAMTemp = (key == "TRUE");
+    }
+
+    it = section.find("voltage_at_end_cpu");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndCPU = (key == "TRUE"); }
+    it = section.find("voltage_at_end_gpu");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndGPU = (key == "TRUE"); }
+    it = section.find("voltage_at_end_ram");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndRAM = (key == "TRUE"); }
+    it = section.find("voltage_at_end_tmp");
+    if (it != section.end()) { key = it->second; convertToUpper(key); settings->voltageAtEndTMP = (key == "TRUE"); }
 
     it = section.find("use_dynamic_colors");
     if (it != section.end()) {
@@ -1948,10 +3426,40 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
         settings->useDTCSymbol = !(key == "FALSE");
     }
 
-    it = section.find("dtc_format");
+    it = section.find("integer_fps");
     if (it != section.end()) {
         key = it->second;
-        settings->dtcFormat = std::move(key);
+        convertToUpper(key);
+        settings->useIntegerFPS = (key != "FALSE");
+    }
+
+    // DTC format: prefer the new two-part keys (dtc_format_1, dtc_format_2). Fall back
+    // to splitting the legacy dtc_format key at DIVIDER_SYMBOL so existing user configs
+    // keep working. Final dtcFormat is rebuilt as format1 + DIVIDER + format2 (or just
+    // format1 when format2 is OPTION_SYMBOL / "None").
+    {
+        const auto it1 = section.find("dtc_format_1");
+        const auto it2 = section.find("dtc_format_2");
+        const auto itLegacy = section.find("dtc_format");
+        if (it1 != section.end() || it2 != section.end()) {
+            if (it1 != section.end()) settings->dtcFormat1 = it1->second;
+            if (it2 != section.end()) settings->dtcFormat2 = it2->second;
+        } else if (itLegacy != section.end()) {
+            const std::string legacy = itLegacy->second;
+            const size_t divPos = legacy.find(ult::DIVIDER_SYMBOL);
+            if (divPos != std::string::npos) {
+                settings->dtcFormat1 = legacy.substr(0, divPos);
+                settings->dtcFormat2 = legacy.substr(divPos + ult::DIVIDER_SYMBOL.length());
+            } else {
+                settings->dtcFormat1 = legacy;
+                settings->dtcFormat2 = ult::OPTION_SYMBOL;
+            }
+        }
+        if (settings->dtcFormat2 == ult::OPTION_SYMBOL || settings->dtcFormat2.empty()) {
+            settings->dtcFormat = settings->dtcFormat1;
+        } else {
+            settings->dtcFormat = settings->dtcFormat1 + ult::DIVIDER_SYMBOL + settings->dtcFormat2;
+        }
     }
 
     // Invert the battery display value
@@ -1961,11 +3469,26 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
         convertToUpper(key);
         settings->invertBatteryDisplay = (key != "FALSE");
     }
+
+    it = section.find("show_stacked_bat");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedBAT = (key == "TRUE");
+    }
+
+    it = section.find("show_stacked_dtc");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedDTC = (key == "TRUE");
+    }
     
     // Process font sizes with shared bounds
-    static constexpr long minFontSize = 8;
-    static constexpr long maxFontSize = 18;
-    
+    static constexpr long minFontSize    = 8;
+    static constexpr long maxFontSize    = 18;  // 720p cap
+    static constexpr long max1080pFont   = 27;  // 1080p pixel-perfect cap (~1.5× 720p max)
+
     it = section.find("handheld_font_size");
     if (it != section.end()) {
         settings->handheldFontSize = std::clamp(atol(it->second.c_str()), minFontSize, maxFontSize);
@@ -1974,6 +3497,18 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
     it = section.find("docked_font_size");
     if (it != section.end()) {
         settings->dockedFontSize = std::clamp(atol(it->second.c_str()), minFontSize, maxFontSize);
+    }
+
+    it = section.find("docked_1080p_font_size");
+    if (it != section.end()) {
+        settings->docked1080pFontSize = std::clamp(atol(it->second.c_str()), minFontSize, max1080pFont);
+    }
+
+    it = section.find("use_1080p_docked");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->use1080pDocked = (key != "FALSE");
     }
     
     // Process colors
@@ -1984,6 +3519,13 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
             settings->backgroundColor = temp;
     }
     
+    it = section.find("focus_background_color");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->focusBackgroundColor = temp;
+    }
+
     it = section.find("separator_color");
     if (it != section.end()) {
         temp = 0;
@@ -2051,12 +3593,74 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
         settings->disableScreenshots = (key != "FALSE");
     }
 
-    // Process exit on sleep
-    it = section.find("sleep_exit");
+    it = section.find("show_RAM_load_CPU_GPU");
     if (it != section.end()) {
         key = it->second;
         convertToUpper(key);
-        settings->sleepExit = (key != "FALSE");
+        settings->showRAMLoadCPUGPU = (key != "FALSE");
+    }
+
+    it = section.find("show_stacked_ram_load_cpu_gpu");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedRAMLoadCPUGPU = (key == "TRUE");
+    }
+
+    it = section.find("show_ram_bandwidth");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showRAMBandwidth = (key != "FALSE");
+    }
+
+    it = section.find("show_stacked_ram_bandwidth");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedRAMBandwidth = (key == "TRUE");
+    }
+
+    // Process component temps flag (also used in Micro)
+    it = section.find("show_component_temps");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showComponentTemps = (key != "FALSE");
+    }
+
+    // Process SOC/PCB/Skin temps flag
+    it = section.find("show_soc_pcb_skin_temps");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showSocPcbSkinTemps = (key != "FALSE");
+    }
+
+    // Process stacked temps flag
+    it = section.find("show_stacked_temps");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showStackedTemps = (key == "TRUE");
+    }
+
+    // Enforce mutual exclusivity: at least one temp group must be on
+    if (!settings->showComponentTemps && !settings->showSocPcbSkinTemps)
+        settings->showSocPcbSkinTemps = true;
+
+    // Horizontal/vertical padding for bar text margins
+    it = section.find("horizontal_padding");
+    if (it != section.end()) {
+        settings->horizontalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 0, 20);
+    }
+    it = section.find("vertical_padding");
+    if (it != section.end()) {
+        settings->verticalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 0, 20);
+    }
+    it = section.find("label_padding");
+    if (it != section.end()) {
+        settings->labelPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 4, 12);
     }
 
 }
@@ -2065,17 +3669,19 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     // Initialize defaults
     settings->handheldFontSize = 40;
     settings->dockedFontSize = 40;
-    convertStrToRGBA4444("#0009", &(settings->backgroundColor));
+    settings->docked1080pFontSize = 68;  // ~40 × 1.5 — visually matches 720p docked size
+    settings->use1080pDocked = true;
+    convertStrToRGBA4444("#000B", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
     convertStrToRGBA4444("#8CFF", &(settings->textColor));
     //settings->setPos = 0;
-    settings->refreshRate = 30;
-    settings->useIntegerCounter = false;
+    settings->refreshRate = 5;
+    settings->useIntegerFPS = true;
     settings->disableScreenshots = false;
 
-    settings->frameOffsetX = 10;
-    settings->frameOffsetY = 10;
-    settings->framePadding = 10;
+    settings->frameOffsetX = 0;
+    settings->frameOffsetY = 0;
+    settings->framePadding = 4;
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -2103,9 +3709,10 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     const auto& section = sectionIt->second;
     
     // Process font sizes with shared bounds
-    static constexpr long minFontSize = 8;
-    static constexpr long maxFontSize = 150;
-    
+    static constexpr long minFontSize    = 8;
+    static constexpr long maxFontSize    = 150;  // 720p cap
+    static constexpr long max1080pFont   = 225;  // 1080p pixel-perfect cap (~1.5× 720p max)
+
     auto it = section.find("handheld_font_size");
     if (it != section.end()) {
         settings->handheldFontSize = std::clamp(atol(it->second.c_str()), minFontSize, maxFontSize);
@@ -2114,6 +3721,18 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     it = section.find("docked_font_size");
     if (it != section.end()) {
         settings->dockedFontSize = std::clamp(atol(it->second.c_str()), minFontSize, maxFontSize);
+    }
+
+    it = section.find("docked_1080p_font_size");
+    if (it != section.end()) {
+        settings->docked1080pFontSize = std::clamp(atol(it->second.c_str()), minFontSize, max1080pFont);
+    }
+
+    it = section.find("use_1080p_docked");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->use1080pDocked = (key != "FALSE");
     }
     
     // Process colors
@@ -2162,11 +3781,11 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     //    }
     //}
 
-    it = section.find("use_integer_counter");
+    it = section.find("integer_fps");
     if (it != section.end()) {
         key = it->second;
         convertToUpper(key);
-        settings->useIntegerCounter = (key != "FALSE");
+        settings->useIntegerFPS = (key != "FALSE");
     }
 
     // Process disable screenshots
@@ -2197,7 +3816,7 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     // Initialize defaults
     settings->showInfo = true;
     //settings->setPos = 0;
-    convertStrToRGBA4444("#0009", &(settings->backgroundColor));
+    convertStrToRGBA4444("#000B", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
     convertStrToRGBA4444("#888C", &(settings->fpsColor));
     convertStrToRGBA4444("#2DFF", &(settings->borderColor));
@@ -2209,15 +3828,16 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     convertStrToRGBA4444("#0C0F", &(settings->perfectLineColor));
 
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
-    convertStrToRGBA4444("#0F0F", &(settings->catColor));
+    convertStrToRGBA4444("#2DFF", &(settings->catColor));
 
-    settings->refreshRate = 30;
+    settings->refreshRate = 5;
     settings->useDynamicColors = true;
+    settings->useIntegerFPS = true;
     settings->disableScreenshots = false;
 
-    settings->frameOffsetX = 10;
-    settings->frameOffsetY = 10;
-    settings->framePadding = 10;
+    settings->frameOffsetX = 0;
+    settings->frameOffsetY = 0;
+    settings->framePadding = 4;
 
 
     // Open and read file efficiently
@@ -2282,6 +3902,13 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
         settings->useDynamicColors = (key == "TRUE");
     }
 
+    it = section.find("integer_fps");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->useIntegerFPS = (key != "FALSE");
+    }
+
     // Process disable screenshots
     it = section.find("disable_screenshots");
     if (it != section.end()) {
@@ -2340,7 +3967,7 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
 ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
     // Initialize defaults
     settings->setPosRight = false;
-    settings->refreshRate = 1;
+    settings->refreshRate = 3;
     settings->showRealFreqs = true;
     settings->showDeltas = true;
     settings->showTargetFreqs = true;
@@ -2349,6 +3976,7 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
     settings->showRDSD = true;
     settings->useDynamicColors = true;
     settings->disableScreenshots = false;
+    convertStrToRGBA4444("#0009", &(settings->backgroundColor));
     convertStrToRGBA4444("#888F", &(settings->separatorColor));
     convertStrToRGBA4444("#8FFF", &(settings->catColor1));
     convertStrToRGBA4444("#8CFF", &(settings->catColor2));
@@ -2450,6 +4078,13 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
         settings->disableScreenshots = (key != "FALSE");
     }
 
+    it = section.find("background_color");
+    if (it != section.end()) {
+        temp = 0;
+        if (convertStrToRGBA4444(it->second, &temp))
+            settings->backgroundColor = temp;
+    }
+
     it = section.find("separator_color");
     if (it != section.end()) {
         temp = 0;
@@ -2481,18 +4116,18 @@ ALWAYS_INLINE void GetConfigSettings(FullSettings* settings) {
 
 ALWAYS_INLINE void GetConfigSettings(ResolutionSettings* settings) {
     // Initialize defaults
-    convertStrToRGBA4444("#0009", &(settings->backgroundColor));
+    convertStrToRGBA4444("#000B", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
     convertStrToRGBA4444("#8FFF", &(settings->catColor));
     //convertStrToRGBA4444("#8CFF", &(settings->catColor2));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
-    settings->refreshRate = 10;
+    settings->refreshRate = 3;
     //ettings->setPos = 0;
     settings->disableScreenshots = false;
 
-    settings->frameOffsetX = 10;
-    settings->frameOffsetY = 10;
-    settings->framePadding = 10;
+    settings->frameOffsetX = 0;
+    settings->frameOffsetY = 0;
+    settings->framePadding = 4;
 
 
     // Open and read file efficiently
@@ -2609,3 +4244,141 @@ ALWAYS_INLINE void GetConfigSettings(ResolutionSettings* settings) {
         settings->disableScreenshots = (key != "FALSE");
     }
 }
+
+// =============================================================================
+// DIVIDER SCISSOR HELPERS (shared between Mini and Micro)
+//
+// The DIVIDER_SYMBOL glyph (U+E031, PUA) has alpha-blended edges. When three
+// are stacked vertically at the same x with overlapping pixel rows, the overlap
+// regions double-blend and produce a visibly darker shade. These helpers draw
+// each divider with a tight scissor band so the three glyphs meet exactly at
+// the midpoint between their visual centers — no overlap, no shading artifact.
+//
+// Layout convention (libtesla: larger Y is lower on screen):
+//
+//   topY     ┊  (top divider — clipped above the upper cut)
+//            ┊
+//            ┊──── cut at midpoint between top and center glyph centers
+//            ┊
+//   centerY  ┊  (center divider — clipped between the two cuts)
+//            ┊
+//            ┊──── cut at midpoint between center and bot glyph centers
+//            ┊
+//   botY     ┊  (bot divider — clipped below the lower cut)
+//
+// The cut Y is: ((Yupper + Ylower) / 2) + bounds[1] + glyphHeight/2
+// (bounds[1] is negative — it's the y-offset from baseline to glyph top.)
+//
+// Scissor stack note (tesla.hpp): enableScissoring/disableScissoring are a
+// simple push/pop stack; only the top entry is consulted by the renderer.
+// Every enable MUST be paired with a disable on every path.
+// =============================================================================
+namespace divider_scissor {
+
+    // Decode the first Unicode codepoint from a UTF-8 string.
+    // Used to pass ult::DIVIDER_SYMBOL to FontManager::getOrCreateGlyph()
+    // without hardcoding the private-use codepoint value here.
+    static inline uint32_t firstCodepoint(const std::string& utf8) {
+        if (utf8.empty()) return 0;
+        const unsigned char* s = reinterpret_cast<const unsigned char*>(utf8.data());
+        if (s[0] < 0x80u)                    return s[0];
+        if ((s[0] & 0xE0u) == 0xC0u && utf8.size() >= 2)
+            return ((s[0] & 0x1Fu) << 6)  | (s[1] & 0x3Fu);
+        if ((s[0] & 0xF0u) == 0xE0u && utf8.size() >= 3)
+            return ((s[0] & 0x0Fu) << 12) | ((s[1] & 0x3Fu) << 6)  | (s[2] & 0x3Fu);
+        if ((s[0] & 0xF8u) == 0xF0u && utf8.size() >= 4)
+            return ((s[0] & 0x07u) << 18) | ((s[1] & 0x3Fu) << 12) | ((s[2] & 0x3Fu) << 6) | (s[3] & 0x3Fu);
+        return 0;
+    }
+
+    // Fetch the divider glyph's vertical-center offset from its baseline Y,
+    // plus the horizontal scissor bounds needed to fully cover its pixels.
+    // Returns false if the glyph could not be obtained (caller should fall
+    // back to drawing without scissoring in that unlikely case).
+    static inline bool getDividerScissorMetrics(uint32_t fontsize,
+                                                 int& outCenterOffsetY,
+                                                 int& outLeftPad,
+                                                 int& outFullWidth) {
+        const uint32_t cp = firstCodepoint(ult::DIVIDER_SYMBOL);
+        if (!cp) return false;
+        auto glyph = tsl::gfx::FontManager::getOrCreateGlyph(cp, false, fontsize);
+        if (!glyph) return false;
+        // bounds[1] is negative (above baseline); height is positive.
+        // Visual vertical center of the rasterised glyph relative to baseline:
+        outCenterOffsetY = glyph->bounds[1] + glyph->height / 2;
+        // Horizontal extent of the rasterised pixels (relative to draw x):
+        outLeftPad   = glyph->bounds[0];   // may be negative
+        outFullWidth = glyph->width;
+        if (outFullWidth < 1) outFullWidth = 1;
+        return true;
+    }
+
+    // Compute the screen-Y at which to cut between two adjacent dividers
+    // (Yupper < Ylower in screen space). This is the midpoint between their
+    // visual glyph centers. Pixels with screen-y < cut belong to the upper
+    // divider; pixels with screen-y >= cut belong to the lower.
+    static inline int computeDividerCutY(int Yupper, int Ylower, int centerOffsetY) {
+        return ((Yupper + Ylower) / 2) + centerOffsetY;
+    }
+
+    // Sentinel "no cut on this side" values used by drawDividerScissored.
+    static constexpr int kNoUpperCut = -1000000;
+    static constexpr int kNoLowerCut =  1000000;
+
+    // Draws one divider at (x, baselineY) clipped to screen-y rows
+    // [cutAbove, cutBelow). Pass cutAbove == kNoUpperCut for "no upper cut"
+    // and cutBelow == kNoLowerCut for "no lower cut". The horizontal scissor
+    // extent is computed from the glyph's bitmap bounds so the glyph is
+    // never accidentally clipped on its sides.
+    static inline void drawDividerScissored(tsl::gfx::Renderer* renderer,
+                                            int x, int baselineY,
+                                            int cutAbove, int cutBelow,
+                                            uint32_t fontsize,
+                                            const tsl::Color& color,
+                                            int leftPad, int fullWidth) {
+        const int fbH = (int)tsl::cfg::FramebufferHeight;
+        int yLo = (cutAbove <= kNoUpperCut) ? 0   : cutAbove;
+        int yHi = (cutBelow >= kNoLowerCut) ? fbH : cutBelow;
+        if (yLo < 0)   yLo = 0;
+        if (yHi > fbH) yHi = fbH;
+        if (yHi <= yLo) return;  // nothing visible — skip draw entirely
+
+        const int fbW = (int)tsl::cfg::FramebufferWidth;
+        int xLo = x + leftPad - 1;
+        int xHi = x + leftPad + fullWidth + 1;
+        if (xLo < 0)   xLo = 0;
+        if (xHi > fbW) xHi = fbW;
+        if (xHi <= xLo) return;
+
+        renderer->enableScissoring((u32)xLo, (u32)yLo,
+                                   (u32)(xHi - xLo), (u32)(yHi - yLo));
+        renderer->drawString(ult::DIVIDER_SYMBOL, false,
+                             (float)x, (float)baselineY, fontsize, color);
+        renderer->disableScissoring();
+    }
+
+    // High-level helper: draws three dividers at the same x at three distinct
+    // baseline Y values (topY < centerY < botY in screen space). Each draw is
+    // scissored to a clean non-overlapping band so the three glyphs meet at
+    // the midpoint between their visual centers.
+    static inline void drawDividerStack3(tsl::gfx::Renderer* renderer,
+                                         int x,
+                                         int topY, int centerY, int botY,
+                                         uint32_t fontsize,
+                                         const tsl::Color& color) {
+        int centerOff = 0, leftPad = 0, fullW = 0;
+        if (!getDividerScissorMetrics(fontsize, centerOff, leftPad, fullW)) {
+            // Fallback: draw without scissoring (preserves prior behaviour).
+            renderer->drawString(ult::DIVIDER_SYMBOL, false, (float)x, (float)topY,    fontsize, color);
+            renderer->drawString(ult::DIVIDER_SYMBOL, false, (float)x, (float)centerY, fontsize, color);
+            renderer->drawString(ult::DIVIDER_SYMBOL, false, (float)x, (float)botY,    fontsize, color);
+            return;
+        }
+        const int cutTC = computeDividerCutY(topY,    centerY, centerOff);
+        const int cutCB = computeDividerCutY(centerY, botY,    centerOff);
+        drawDividerScissored(renderer, x, topY,    kNoUpperCut, cutTC,       fontsize, color, leftPad, fullW);
+        drawDividerScissored(renderer, x, centerY, cutTC,       cutCB,       fontsize, color, leftPad, fullW);
+        drawDividerScissored(renderer, x, botY,    cutCB,       kNoLowerCut, fontsize, color, leftPad, fullW);
+    }
+
+} // namespace divider_scissor

@@ -9,6 +9,7 @@
 //static tsl::elm::HeaderOverlayFrame* rootFrame = nullptr;
 static bool skipMain = false;
 static std::string lastSelectedItem;
+inline std::string originalLaunchArgs; // flattened argv[1..] minus --silentLaunch; used by Mini for silent dock-transition relaunch
 
 #include "modes/FPS_Counter.hpp"
 #include "modes/FPS_Graph.hpp"
@@ -439,11 +440,6 @@ public:
             }
             i2cCheck = i2cInitialize();
 
-            SaltySD = CheckPort();
-
-            if (SaltySD) {
-                LoadSharedMemoryAndRefreshRate();
-            }
             if (sysclkIpcRunning() && R_SUCCEEDED(sysclkIpcInitialize())) {
                 uint32_t sysClkApiVer = 0;
                 sysclkIpcGetAPIVersion(&sysClkApiVer);
@@ -451,6 +447,15 @@ public:
                     sysclkIpcExit();
                 }
                 else sysclkCheck = 0;
+            }
+            // Fallback: try hoc-clk (Horizon OC native IPC, hoc:clk service)
+            else if (hocclkIpcRunning() && R_SUCCEEDED(hocclkIpcInitialize())) {
+                uint32_t hocClkApiVer = 0;
+                hocclkIpcGetAPIVersion(&hocClkApiVer);
+                if (hocClkApiVer < 2) {
+                    hocclkIpcExit();
+                }
+                else hocclkCheck = 0;
             }
             if (R_SUCCEEDED(splInitialize())) {
                 u64 sku = 0;
@@ -466,6 +471,10 @@ public:
             splExit();
 
         });
+        SaltySD = CheckPort();
+        if (SaltySD) {
+            LoadSharedMemoryAndRefreshRate();
+        }
         Hinted = envIsSyscallHinted(0x6F);
     }
 
@@ -473,6 +482,10 @@ public:
         CloseThreads();
         if (R_SUCCEEDED(sysclkCheck)) {
             sysclkIpcExit();
+        }
+        if (R_SUCCEEDED(hocclkCheck)) {
+            hocclkIpcExit();
+            hocclkCheck = 1;
         }
         shmemClose(&_sharedmemory);
         //Exit services
@@ -523,11 +536,6 @@ public:
                 psmService = psmGetServiceSession();
             }
 
-            SaltySD = CheckPort();
-
-            if (SaltySD) {
-                LoadSharedMemory();
-            }
             if (sysclkIpcRunning() && R_SUCCEEDED(sysclkIpcInitialize())) {
                 uint32_t sysClkApiVer = 0;
                 sysclkIpcGetAPIVersion(&sysClkApiVer);
@@ -535,6 +543,15 @@ public:
                     sysclkIpcExit();
                 }
                 else sysclkCheck = 0;
+            }
+            // Fallback: try hoc-clk (Horizon OC native IPC, hoc:clk service)
+            else if (hocclkIpcRunning() && R_SUCCEEDED(hocclkIpcInitialize())) {
+                uint32_t hocClkApiVer = 0;
+                hocclkIpcGetAPIVersion(&hocClkApiVer);
+                if (hocClkApiVer < 2) {
+                    hocclkIpcExit();
+                }
+                else hocclkCheck = 0;
             }
             if (R_SUCCEEDED(splInitialize())) {
                 u64 sku = 0;
@@ -549,6 +566,10 @@ public:
             }
             splExit();
         });
+        SaltySD = CheckPort();
+        if (SaltySD) {
+            LoadSharedMemory();
+        }
         Hinted = envIsSyscallHinted(0x6F);
     }
 
@@ -557,6 +578,10 @@ public:
         shmemClose(&_sharedmemory);
         if (R_SUCCEEDED(sysclkCheck)) {
             sysclkIpcExit();
+        }
+        if (R_SUCCEEDED(hocclkCheck)) {
+            hocclkIpcExit();
+            hocclkCheck = 1;
         }
         //Exit services
         clkrstExit();
@@ -610,11 +635,6 @@ public:
                 psmService = psmGetServiceSession();
             }
 
-            SaltySD = CheckPort();
-
-            if (SaltySD) {
-                LoadSharedMemory();
-            }
             if (sysclkIpcRunning() && R_SUCCEEDED(sysclkIpcInitialize())) {
                 uint32_t sysClkApiVer = 0;
                 sysclkIpcGetAPIVersion(&sysClkApiVer);
@@ -622,6 +642,15 @@ public:
                     sysclkIpcExit();
                 }
                 else sysclkCheck = 0;
+            }
+            // Fallback: try hoc-clk (Horizon OC native IPC, hoc:clk service)
+            else if (hocclkIpcRunning() && R_SUCCEEDED(hocclkIpcInitialize())) {
+                uint32_t hocClkApiVer = 0;
+                hocclkIpcGetAPIVersion(&hocClkApiVer);
+                if (hocClkApiVer < 2) {
+                    hocclkIpcExit();
+                }
+                else hocclkCheck = 0;
             }
             if (R_SUCCEEDED(splInitialize())) {
                 u64 sku = 0;
@@ -645,6 +674,10 @@ public:
         shmemClose(&_sharedmemory);
         if (R_SUCCEEDED(sysclkCheck)) {
             sysclkIpcExit();
+        }
+        if (R_SUCCEEDED(hocclkCheck)) {
+            hocclkIpcExit();
+            hocclkCheck = 1;
         }
         // Exit services
         clkrstExit();
@@ -700,11 +733,6 @@ public:
                 psmService = psmGetServiceSession();
             }
 
-            SaltySD = CheckPort();
-
-            if (SaltySD) {
-                LoadSharedMemoryAndRefreshRate();
-            }
             if (sysclkIpcRunning() && R_SUCCEEDED(sysclkIpcInitialize())) {
                 uint32_t sysClkApiVer = 0;
                 sysclkIpcGetAPIVersion(&sysClkApiVer);
@@ -712,6 +740,15 @@ public:
                     sysclkIpcExit();
                 }
                 else sysclkCheck = 0;
+            }
+            // Fallback: try hoc-clk (Horizon OC native IPC, hoc:clk service)
+            else if (hocclkIpcRunning() && R_SUCCEEDED(hocclkIpcInitialize())) {
+                uint32_t hocClkApiVer = 0;
+                hocclkIpcGetAPIVersion(&hocClkApiVer);
+                if (hocClkApiVer < 2) {
+                    hocclkIpcExit();
+                }
+                else hocclkCheck = 0;
             }
             if (R_SUCCEEDED(splInitialize())) {
                 u64 sku = 0;
@@ -726,6 +763,10 @@ public:
             }
             splExit();
         });
+        SaltySD = CheckPort();
+        if (SaltySD) {
+            LoadSharedMemoryAndRefreshRate();
+        }
         Hinted = envIsSyscallHinted(0x6F);
     }
 
@@ -734,6 +775,10 @@ public:
         shmemClose(&_sharedmemory);
         if (R_SUCCEEDED(sysclkCheck)) {
             sysclkIpcExit();
+        }
+        if (R_SUCCEEDED(hocclkCheck)) {
+            hocclkIpcExit();
+            hocclkCheck = 1;
         }
         clkrstExit();
         pcvExit();
@@ -783,11 +828,6 @@ public:
                 psmService = psmGetServiceSession();
             }
 
-            SaltySD = CheckPort();
-
-            if (SaltySD) {
-                LoadSharedMemoryAndRefreshRate();
-            }
             if (sysclkIpcRunning() && R_SUCCEEDED(sysclkIpcInitialize())) {
                 uint32_t sysClkApiVer = 0;
                 sysclkIpcGetAPIVersion(&sysClkApiVer);
@@ -795,6 +835,15 @@ public:
                     sysclkIpcExit();
                 }
                 else sysclkCheck = 0;
+            }
+            // Fallback: try hoc-clk (Horizon OC native IPC, hoc:clk service)
+            else if (hocclkIpcRunning() && R_SUCCEEDED(hocclkIpcInitialize())) {
+                uint32_t hocClkApiVer = 0;
+                hocclkIpcGetAPIVersion(&hocClkApiVer);
+                if (hocClkApiVer < 2) {
+                    hocclkIpcExit();
+                }
+                else hocclkCheck = 0;
             }
             if (R_SUCCEEDED(splInitialize())) {
                 u64 sku = 0;
@@ -809,6 +858,10 @@ public:
             }
             splExit();
         });
+        SaltySD = CheckPort();
+        if (SaltySD) {
+            LoadSharedMemoryAndRefreshRate();
+        }
         Hinted = envIsSyscallHinted(0x6F);
     }
 
@@ -817,6 +870,10 @@ public:
         shmemClose(&_sharedmemory);
         if (R_SUCCEEDED(sysclkCheck)) {
             sysclkIpcExit();
+        }
+        if (R_SUCCEEDED(hocclkCheck)) {
+            hocclkIpcExit();
+            hocclkCheck = 1;
         }
         clkrstExit();
         pcvExit();
@@ -866,11 +923,6 @@ public:
                 psmService = psmGetServiceSession();
             }
 
-            SaltySD = CheckPort();
-
-            if (SaltySD) {
-                LoadSharedMemoryAndRefreshRate();
-            }
             if (sysclkIpcRunning() && R_SUCCEEDED(sysclkIpcInitialize())) {
                 uint32_t sysClkApiVer = 0;
                 sysclkIpcGetAPIVersion(&sysClkApiVer);
@@ -878,6 +930,15 @@ public:
                     sysclkIpcExit();
                 }
                 else sysclkCheck = 0;
+            }
+            // Fallback: try hoc-clk (Horizon OC native IPC, hoc:clk service)
+            else if (hocclkIpcRunning() && R_SUCCEEDED(hocclkIpcInitialize())) {
+                uint32_t hocClkApiVer = 0;
+                hocclkIpcGetAPIVersion(&hocClkApiVer);
+                if (hocClkApiVer < 2) {
+                    hocclkIpcExit();
+                }
+                else hocclkCheck = 0;
             }
             if (R_SUCCEEDED(splInitialize())) {
                 u64 sku = 0;
@@ -892,6 +953,10 @@ public:
             }
             splExit();
         });
+        SaltySD = CheckPort();
+        if (SaltySD) {
+            LoadSharedMemoryAndRefreshRate();
+        }
         Hinted = envIsSyscallHinted(0x6F);
     }
 
@@ -900,6 +965,10 @@ public:
         shmemClose(&_sharedmemory);
         if (R_SUCCEEDED(sysclkCheck)) {
             sysclkIpcExit();
+        }
+        if (R_SUCCEEDED(hocclkCheck)) {
+            hocclkIpcExit();
+            hocclkCheck = 1;
         }
         clkrstExit();
         pcvExit();
@@ -927,23 +996,193 @@ public:
 };
 
 
+class FullEntryOverlay : public tsl::Overlay {
+public:
+    FullEntryOverlay() {}
+
+    virtual void initServices() override {
+        tsl::hlp::doWithSmSession([this]{
+            apmInitialize();
+            if (hosversionAtLeast(8,0,0)) clkrstCheck = clkrstInitialize();
+            else pcvCheck = pcvInitialize();
+
+            if (R_SUCCEEDED(nvInitialize())) nvCheck = nvOpen(&fd, "/dev/nvhost-ctrl-gpu");
+
+            if (hosversionAtLeast(5,0,0)) tcCheck = tcInitialize();
+
+            if (hosversionAtLeast(6,0,0) && R_SUCCEEDED(pwmInitialize())) {
+                pwmCheck = pwmOpenSession2(&g_ICon, 0x3D000001);
+            }
+
+            i2cCheck = i2cInitialize();
+
+            psmCheck = psmInitialize();
+            if (R_SUCCEEDED(psmCheck)) {
+                psmService = psmGetServiceSession();
+            }
+
+            if (sysclkIpcRunning() && R_SUCCEEDED(sysclkIpcInitialize())) {
+                uint32_t sysClkApiVer = 0;
+                sysclkIpcGetAPIVersion(&sysClkApiVer);
+                if (sysClkApiVer < 4) {
+                    sysclkIpcExit();
+                }
+                else sysclkCheck = 0;
+            }
+            // Fallback: try hoc-clk (Horizon OC native IPC, hoc:clk service)
+            else if (hocclkIpcRunning() && R_SUCCEEDED(hocclkIpcInitialize())) {
+                uint32_t hocClkApiVer = 0;
+                hocclkIpcGetAPIVersion(&hocClkApiVer);
+                if (hocClkApiVer < 2) {
+                    hocclkIpcExit();
+                }
+                else hocclkCheck = 0;
+            }
+            if (R_SUCCEEDED(splInitialize())) {
+                u64 sku = 0;
+                splGetConfig(SplConfigItem_HardwareType, &sku);
+                switch(sku) {
+                    case 2 ... 5:
+                        isMariko = true;
+                        break;
+                    default:
+                        isMariko = false;
+                }
+            }
+            splExit();
+        });
+        SaltySD = CheckPort();
+        if (SaltySD) {
+            LoadSharedMemoryAndRefreshRate();
+        }
+        Hinted = envIsSyscallHinted(0x6F);
+    }
+
+    virtual void exitServices() override {
+        CloseThreads();
+        shmemClose(&_sharedmemory);
+        if (R_SUCCEEDED(sysclkCheck)) {
+            sysclkIpcExit();
+        }
+        if (R_SUCCEEDED(hocclkCheck)) {
+            hocclkIpcExit();
+            hocclkCheck = 1;
+        }
+        clkrstExit();
+        pcvExit();
+        tsExit();
+        tcExit();
+        pwmChannelSessionClose(&g_ICon);
+        pwmExit();
+        i2cExit();
+        psmExit();
+        nvClose(fd);
+        nvExit();
+        apmExit();
+    }
+
+    virtual void onShow() override {
+        tsl::hlp::requestForeground(false);
+        //deactivateOriginalFooter = true;
+    }
+
+    virtual std::unique_ptr<tsl::Gui> loadInitialGui() override {
+        return initially<FullOverlay>();
+    }
+};
+
+
 // Helper function to check if overlay file exists
 bool checkOverlayFile(const std::string& filename) {
     struct stat buffer;
     return stat(filename.c_str(), &buffer) == 0;
 }
 
-// Helper function to setup micro mode paths
+// Returns true and configures the framebuffer for 1080p pixel-perfect mode if:
+//   - the mode's use_1080p_docked INI key is true
+//   - the console is currently docked
+//   - we have enough heap (expandedMemory, i.e. 8 MB+)
+// Otherwise leaves framebuffer settings untouched and returns false.
+// Safe to call before tsl::loop<> — uses only ult::parseValueFromIniSection
+// (file read, no services) and ult::consoleIsDocked() (applet query, no apm).
+//
+// Framebuffer dimensions in 1080p mode: 832×1080
+//
+//   Why 832×1080?
+//   The overlay framebuffer area must not exceed the equivalent of the standard
+//   1280×720 budget (921,600 pixels).  For 1080p pixel-perfect we choose a
+//   full-height strip so the layer is always anchored at both top AND bottom —
+//   this guarantees the layer appears in screenshots and never gets clipped by
+//   the compositor:
+//
+//     832 × 1080 = 921,240 px  ≈  1280 × 720 = 921,600 px  ✓
+//
+//   Memory: 832×1080×2 bytes×2 buffers ≈ 3.7 MB — well within 8 MB heap.
+//
+//   The layer is placed at VI position (x, 0) with size 832×1080, and x is
+//   adjusted when the user drags the overlay so it stays within (0..1088)
+//   (1920 − 832).  frameOffsetX (stored in 0..1280 logical space) maps to
+//   VI x via:  viX = round(frameOffsetX × 1.5)  clamped to [0, 1088].
+// Optional width/height overrides let modes like Micro request different
+// 1080p dimensions (1920x480 / 1920x240) without affecting mini/fps-counter.
+// Pass 0,0 (the defaults) to use the standard 832×1080 / 832×554 dimensions.
+static bool setup1080pIfEnabled(const std::string& iniSection,
+                                 uint32_t fullWidth  = 0, uint32_t fullHeight  = 0,
+                                 uint32_t limitWidth = 0, uint32_t limitHeight = 0) {
+    //if (!ult::expandedMemory) return false;
+    if (!ult::consoleIsDocked()) return false;
+    const std::string val = ult::parseValueFromIniSection(configIniPath, iniSection, "use_1080p_docked");
+    // Missing key defaults to true — only an explicit "false" disables 1080p docked.
+    if (!val.empty()) {
+        std::string upper = val;
+        for (char& c : upper) c = (char)std::toupper((unsigned char)c);
+        if (upper == "FALSE") return false;
+    }
+    ult::windowedLayerPixelPerfect = true;
+    if (!ult::limitedMemory) {
+        ult::DefaultFramebufferWidth  = (fullWidth  > 0) ? fullWidth  : 832;
+        ult::DefaultFramebufferHeight = (fullHeight > 0) ? fullHeight : 1080;
+    } else {
+        ult::DefaultFramebufferWidth  = (limitWidth  > 0) ? limitWidth  : 832;
+        ult::DefaultFramebufferHeight = (limitHeight > 0) ? limitHeight : 554;
+    }
+    return true;
+}
+
+// Helper function to setup mode framebuffer and filepath
 inline void setupMode(const std::string& modeType = "") {
 
     if (modeType == "micro") {
-        if (!ult::limitedMemory) {
-            ult::DefaultFramebufferWidth = 1280;
-            ult::DefaultFramebufferHeight = 720;
-        } else {
-            ult::DefaultFramebufferWidth = 1280;
-            ult::DefaultFramebufferHeight = 28;
+        ult::windowedLayerPixelPerfect = false; // reset; setup1080pIfEnabled sets true if eligible
+        if (!setup1080pIfEnabled("micro", 1920, 480, 1920, 240)) {
+            // Non-1080p micro: 1280x720 (non-limited) or 1280x360 (limited)
+            if (!ult::limitedMemory) {
+                ult::DefaultFramebufferWidth  = 1280;
+                ult::DefaultFramebufferHeight = 720;
+            } else {
+                ult::DefaultFramebufferWidth  = 1280;
+                ult::DefaultFramebufferHeight = 360;
+            }
         }
+    } else if (modeType == "mini") {
+        ult::windowedLayerPixelPerfect = false; // reset; setup1080pIfEnabled sets true if eligible
+        if (!setup1080pIfEnabled("mini")) {
+            // Non-1080p mini: only set 1280x720 when not limitedMemory.
+            // limitedMemory falls through to the stock 448x720 default —
+            // setting 1280x720 on a 4MB heap crashes the overlay loader.
+            if (!ult::limitedMemory) {
+                ult::DefaultFramebufferWidth = 1280;
+                ult::DefaultFramebufferHeight = 720;
+            }
+        } // else 1080p dims set by setup1080pIfEnabled
+    } else if (modeType == "fps_counter") {
+        ult::windowedLayerPixelPerfect = false; // reset; setup1080pIfEnabled sets true if eligible
+        if (!setup1080pIfEnabled("fps-counter")) {
+            if (!ult::limitedMemory) {
+                ult::DefaultFramebufferWidth = 1280;
+                ult::DefaultFramebufferHeight = 720;
+            }
+        } // else 1080p dims set by setup1080pIfEnabled
     } else {
         if (!ult::limitedMemory) {
             ult::DefaultFramebufferWidth = 1280;
@@ -1028,6 +1267,17 @@ int main(int argc, char **argv) {
     
     systemtickfrequency = armGetSystemTickFreq();
     ParseIniFile(); // parse INI from file
+
+    // Stash a flattened copy of the launch args (argv[1..]) so modes like Mini
+    // can relaunch with the same arguments.  --silentLaunch is stripped here so
+    // it never propagates automatically — modes add it explicitly when needed.
+    {
+        for (int a = 1; a < argc; ++a) {
+            if (strcmp(argv[a], "--silentLaunch") == 0) continue;
+            if (!originalLaunchArgs.empty()) originalLaunchArgs += ' ';
+            originalLaunchArgs += argv[a];
+        }
+    }
     
     if (argc > 0) {
         filename = argv[0]; // set global
@@ -1041,17 +1291,17 @@ int main(int argc, char **argv) {
                 auto& section = sectionIt->second;
                 
                 // Compare and update if values differ
-                const std::string expectedArgs = "(-mini, -micro, -fps_graph, -fps_counter, -game_resolutions)";
+                const std::string expectedArgs = "(-full, -mini, -micro, -fps_graph, -fps_counter, -game_resolutions)";
                 
                 if (section["mode_args"] != expectedArgs) {
                     section["mode_args"] = expectedArgs;
-                    section["mode_labels"] = "(Mini, Micro, FPS Graph, FPS Counter, Game Resolutions)";
+                    section["mode_labels"] = "(Full, Mini, Micro, FPS Graph, FPS Counter, Game Resolutions)";
                     ult::saveIniFileData(ult::OVERLAYS_INI_FILEPATH, iniData);
                 }
             } else {
                 // If section doesn't exist, create it with expected values
-                iniData[filename]["mode_args"] = "(-mini, -micro, -fps_graph, -fps_counter, -game_resolutions)";
-                iniData[filename]["mode_labels"] = "(Mini, Micro, FPS Graph, FPS Counter, Game Resolutions)";
+                iniData[filename]["mode_args"] = "(-full, -mini, -micro, -fps_graph, -fps_counter, -game_resolutions)";
+                iniData[filename]["mode_labels"] = "(Full, Mini, Micro, FPS Graph, FPS Counter, Game Resolutions)";
                 ult::saveIniFileData(ult::OVERLAYS_INI_FILEPATH, iniData);
             }
         }
@@ -1068,21 +1318,31 @@ int main(int argc, char **argv) {
             const char* argStr = argv[arg];
             if (argStr[0] != '-') continue;
             
+
+            // Full mode
+            if (strcasecmp(argStr, "-full") == 0) {
+                FullMode = true;
+                lastMode = "full";
+                skipMain = true;
+                return tsl::loop<FullEntryOverlay>(argc, argv);
+            }
             // Micro mode
-            if (strcasecmp(argStr, "-micro") == 0) {
+            else if (strcasecmp(argStr, "-micro") == 0) {
                 FullMode = false;
                 lastMode = "micro";
                 if (!directLaunch) {
                     setupMode(lastMode);
                 } else {
                     skipMain = true;
-
-                    if (!ult::limitedMemory) {
-                        ult::DefaultFramebufferWidth = 1280;
-                        ult::DefaultFramebufferHeight = 720;
-                    } else {
-                        ult::DefaultFramebufferWidth = 1280;
-                        ult::DefaultFramebufferHeight = 28;
+                    ult::windowedLayerPixelPerfect = false; // reset before 1080p check
+                    if (!setup1080pIfEnabled("micro", 1920, 480, 1920, 240)) {
+                        if (!ult::limitedMemory) {
+                            ult::DefaultFramebufferWidth  = 1280;
+                            ult::DefaultFramebufferHeight = 720;
+                        } else {
+                            ult::DefaultFramebufferWidth  = 1280;
+                            ult::DefaultFramebufferHeight = 360;
+                        }
                     }
                 }
                 return tsl::loop<MicroMode>(argc, argv);
@@ -1092,12 +1352,15 @@ int main(int argc, char **argv) {
                 FullMode = false;
                 lastMode = "mini";
                 if (!directLaunch) {
-                    setupMode();
+                    setupMode("mini");
                 } else {
                     skipMain = true;
-                    if (!ult::limitedMemory) {
-                        ult::DefaultFramebufferWidth = 1280;
-                        ult::DefaultFramebufferHeight = 720;
+                    ult::windowedLayerPixelPerfect = false; // reset before 1080p check
+                    if (!setup1080pIfEnabled("mini")) {
+                        if (!ult::limitedMemory) {
+                            ult::DefaultFramebufferWidth = 1280;
+                            ult::DefaultFramebufferHeight = 720;
+                        }
                     }
                 }
                 return tsl::loop<MiniEntryOverlay>(argc, argv);
@@ -1122,12 +1385,15 @@ int main(int argc, char **argv) {
                 FullMode = false;
                 lastMode = "fps_counter";
                 if (!directLaunch) {
-                    setupMode();
+                    setupMode("fps_counter");
                 } else {
                     skipMain = true;
-                    if (!ult::limitedMemory) {
-                        ult::DefaultFramebufferWidth = 1280;
-                        ult::DefaultFramebufferHeight = 720;
+                    ult::windowedLayerPixelPerfect = false; // reset before 1080p check
+                    if (!setup1080pIfEnabled("fps-counter")) {
+                        if (!ult::limitedMemory) {
+                            ult::DefaultFramebufferWidth = 1280;
+                            ult::DefaultFramebufferHeight = 720;
+                        }
                     }
                 }
                 return tsl::loop<FPSCounterEntryOverlay>(argc, argv);
