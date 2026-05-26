@@ -1,25 +1,25 @@
 /*
- * Mode-Specific Configuration Settings
+ * 模式专用配置设置
  * 
- * Based on actual settings structures, each mode only shows applicable settings:
+ * 基于实际设置结构，每种模式仅显示适用的设置：
  * 
- * Mini Mode: Refresh Rate, Colors (background, focus_background, separator, category, text), 
- *           Toggles, Font Sizes, Elements, DTC Format
+ * Mini 模式：刷新率、颜色（背景、焦点背景、分隔线、分类、文字）、
+ *           开关、字号、条目、时间格式
  * 
- * Micro Mode: Refresh Rate, Colors (background, separator, category, text), Toggles, 
- *            Font Sizes, Elements, Text Alignment, Vertical Position (Top/Bottom only), DTC Format
+ * Micro 模式：刷新率、颜色（背景、分隔线、分类、文字）、开关、
+ *            字号、条目、文字对齐、垂直位置（仅上/下）、时间格式
  * 
- * Full Mode: Refresh Rate, Toggles (show_real_freqs, show_deltas, etc.), 
- *           Horizontal Position (Left/Right only) - NO colors, fonts, or elements
+ * 完整模式：刷新率、开关（实际频率、差值等）、
+ *           水平位置（仅左/右）- 无颜色、字体或条目
  * 
- * FPS Counter: Refresh Rate, Colors (background, text only), Font Sizes, 
- *             Horizontal/Vertical Position
+ * FPS 计数器：刷新率、颜色（仅背景、文字）、字号、
+ *             水平/垂直位置
  * 
- * FPS Graph: Refresh Rate, Colors (8 graph-specific colors), Toggles (show_info only), 
- *           Horizontal/Vertical Position - NO fonts
+ * FPS 图表：刷新率、颜色（8种图表专用颜色）、开关（仅显示信息）、
+ *           水平/垂直位置 - 无字体
  * 
- * Game Resolutions: Refresh Rate, Colors (background, category, text only), 
- *                  Horizontal/Vertical Position - NO toggles, fonts, or elements
+ * 游戏分辨率：刷新率、颜色（仅背景、分类、文字）、
+ *             水平/垂直位置 - 无开关、字体或条目
  */
 
 #pragma once
@@ -28,13 +28,13 @@
 
 #include <unordered_set>
 
-// External variables for navigation
+// 导航用的外部变量
 extern std::string jumpItemName;
 extern std::string jumpItemValue;
 extern std::atomic<bool> jumpItemExactMatch;
 static tsl::elm::ListItem* lastSelectedListItem;
 
-// Forward declarations
+// 前向声明
 class ConfiguratorOverlay;
 class RefreshRateConfig;
 class FontSizeConfig;
@@ -48,10 +48,10 @@ class DTCFormatConfig;
 class ModeComboConfig;
 
 // =============================================================================
-// Shared helpers
+// 共享辅助函数
 // =============================================================================
 
-// Map a mode name to its INI section string.
+// 将模式名称映射到其 INI section 字符串。
 inline std::string modeToSection(const std::string& mode) {
     if (mode == "Mini")             return "mini";
     if (mode == "Micro")            return "micro";
@@ -62,7 +62,7 @@ inline std::string modeToSection(const std::string& mode) {
     return "";
 }
 
-// Read a boolean INI value, returning defaultVal when the key is absent.
+// 读取布尔型 INI 值，当键不存在时返回默认值。
 inline bool readBool(const std::string& section, const std::string& key, bool defaultVal = true) {
     std::string value = ult::parseValueFromIniSection(configIniPath, section, key);
     if (value.empty()) return defaultVal;
@@ -70,16 +70,16 @@ inline bool readBool(const std::string& section, const std::string& key, bool de
     return value != "FALSE";
 }
 
-// Read a boolean that is stored inverted (key is "show_stacked_*" where
-// true-in-file means NOT stacked). Returns the logical "stacked" state.
+// 读取反转存储的布尔值（键为 "show_stacked_*" 时，
+// 文件中的 true 表示 NOT stacked）。返回逻辑的 "stacked" 状态。
 inline bool readInvertedBool(const std::string& section, const std::string& key, bool defaultVal = true) {
     std::string value = ult::parseValueFromIniSection(configIniPath, section, key);
     if (value.empty()) return defaultVal;
     convertToUpper(value);
-    return value == "FALSE"; // inverted: file "false" => stacked true
+    return value == "FALSE"; // 反转：文件中 "false" => stacked true
 }
 
-// Color helpers
+// 颜色辅助函数
 inline std::string extractColorWithoutAlpha(const std::string& rgba) {
     if (rgba.length() >= 5 && rgba[0] == '#') return rgba.substr(0, 4);
     return rgba;
@@ -95,58 +95,58 @@ inline std::string setAlphaInColor(const std::string& rgba, char alpha) {
     return rgba;
 }
 
-// Shared color name lookup. Used by both ColorSelector and ColorConfig.
-// Returns the color name for a #RGB string, or the hex itself if unknown.
+// 共享颜色名称查找。ColorSelector 和 ColorConfig 均使用。
+// 返回 #RGB 字符串对应的颜色名称，未知则返回 hex 本身。
 inline std::string getColorName(const std::string& hexColor) {
     std::string rgb = (hexColor.length() == 5 && hexColor[0] == '#')
                       ? hexColor.substr(0, 4) : hexColor;
 
     static const std::map<std::string, std::string> colorNames = {
-        {"#000","Black"},      {"#222","Charcoal"},    {"#444","Dark Gray"},
-        {"#666","Gray"},       {"#999","Light Gray"},   {"#CCC","Silver"},
-        {"#EEE","Off-White"},  {"#FFF","White"},
+        {"#000","黑色"},      {"#222","炭黑"},    {"#444","深灰"},
+        {"#666","灰色"},       {"#999","浅灰"},   {"#CCC","银色"},
+        {"#EEE","米白"},  {"#FFF","白色"},
 
-        {"#200","Dark Red"},   {"#700","Maroon"},       {"#B22","Crimson"},
-        {"#F00","Red"},        {"#F66","Light Red"},    {"#FAA","Salmon"},
+        {"#200","深红"},   {"#700","栗色"},       {"#B22","绯红"},
+        {"#F00","红色"},        {"#F66","浅红"},    {"#FAA","鲑红"},
 
-        {"#520","Dark Orange"},{"#A40","Burnt Orange"}, {"#F80","Orange"},
-        {"#FB6","Light Orange"},{"#FC8","Peach"},
+        {"#520","深橙"},{"#A40","焦橙"}, {"#F80","橙色"},
+        {"#FB6","浅橙"},{"#FC8","蜜桃"},
 
-        {"#220","Dark Yellow"},{"#CA0","Gold"},         {"#FF0","Yellow"},
-        {"#FF6","Light Yellow"},{"#FFC","Cream"},
+        {"#220","暗黄"},{"#CA0","金色"},         {"#FF0","黄色"},
+        {"#FF6","浅黄"},{"#FFC","奶油"},
 
-        {"#020","Dark Green"}, {"#063","Forest Green"}, {"#080","Green"},
-        {"#0C0","Lime Green"}, {"#0F0","Bright Green"}, {"#8F8","Light Green"},
-        {"#CFA","Mint"},
+        {"#020","深绿"}, {"#063","森林绿"}, {"#080","绿色"},
+        {"#0C0","酸橙绿"}, {"#0F0","亮绿"}, {"#8F8","浅绿"},
+        {"#CFA","薄荷"},
 
-        {"#022","Dark Teal"},  {"#066","Teal"},         {"#0AA","Aqua"},
-        {"#0FF","Cyan"},       {"#8FF","Light Cyan"},
+        {"#022","深青"},  {"#066","蓝绿"},         {"#0AA","水绿"},
+        {"#0FF","青色"},       {"#8FF","浅青"},
 
-        {"#002","Midnight Blue"},{"#003","Dark Blue"},  {"#04A","Navy"},
-        {"#06F","Royal Blue"}, {"#00F","Blue"},         {"#2DF","Light Blue"},
-        {"#8CF","Sky Blue"},   {"#ACE","Powder Blue"},
+        {"#002","午夜蓝"},{"#003","深蓝"},  {"#04A","海军蓝"},
+        {"#06F","皇家蓝"}, {"#00F","蓝色"},         {"#2DF","浅蓝"},
+        {"#8CF","天蓝"},   {"#ACE","粉蓝"},
 
-        {"#202","Dark Purple"},{"#404","Eggplant"},     {"#608","Indigo"},
-        {"#808","Purple"},     {"#A0F","Violet"},       {"#C8F","Lavender"},
-        {"#D9F","Light Lavender"},
+        {"#202","深紫"},{"#404","茄紫"},     {"#608","靛蓝"},
+        {"#808","紫色"},     {"#A0F","紫罗兰"},       {"#C8F","薰衣草"},
+        {"#D9F","浅薰衣草"},
 
-        {"#606","Dark Magenta"},{"#F0F","Magenta"},     {"#F4A","Hot Pink"},
-        {"#F8A","Pink"},       {"#FCE","Light Pink"},
+        {"#606","深品红"},{"#F0F","品红"},     {"#F4A","艳粉"},
+        {"#F8A","粉红"},       {"#FCE","浅粉"},
 
-        {"#321","Dark Brown"}, {"#642","Brown"},        {"#A75","Light Brown"},
-        {"#DB8","Tan"},
+        {"#321","深棕"}, {"#642","棕色"},        {"#A75","浅棕"},
+        {"#DB8","棕褐"},
     };
 
     auto it = colorNames.find(rgb);
     if (it != colorNames.end()) {
         if (rgb == "#000" && hexColor.length() == 5 && hexColor[4] == '0')
-            return "Transparent";
+            return "透明";
         return it->second;
     }
     return rgb;
 }
 
-// Convert a 4-bit alpha nibble character to a percentage string.
+// 将 4 位 alpha 半字节字符转换为百分比字符串。
 inline std::string alphaToPercent(char alpha) {
     static const char* const table[16] = {
         "0%","7%","13%","20%","27%","33%","40%","47%",
@@ -164,7 +164,7 @@ inline std::string getAlphaPercentage(const std::string& color) {
     return "60%";
 }
 
-// Compact mode-flag bundle. Construct once per class from the mode string.
+// 紧凑的模式标志集合。每个类构造时从模式字符串初始化一次。
 struct ModeFlags {
     bool isMini, isMicro, isFull, isGameRes, isFPSCounter, isFPSGraph;
     explicit ModeFlags(const std::string& mode)
@@ -176,12 +176,12 @@ struct ModeFlags {
         , isFPSGraph  (mode == "FPS Graph") {}
 };
 
-// Clear all three jump-state globals at once.
+// 一次性清除所有三个跳转状态全局变量。
 inline void clearJump() {
     jumpItemName = ""; jumpItemValue = ""; jumpItemExactMatch = false;
 }
 
-// Apply checkmark to newItem, clear it from the previous selection.
+// 对新项应用勾选标记，同时清除先前选项的标记。
 inline void selectItem(tsl::elm::ListItem*& lastSelected,
                        tsl::elm::ListItem* newItem,
                        const std::string& checkmark,
@@ -192,15 +192,15 @@ inline void selectItem(tsl::elm::ListItem*& lastSelected,
     lastSelected = newItem;
 }
 
-// Build a standard OverlayFrame, attach content, and return it.
+// 构建标准 OverlayFrame，附加内容并返回。
 inline tsl::elm::Element* makeFrame(const std::string& subtitle, tsl::elm::Element* content) {
-    auto* f = new tsl::elm::OverlayFrame("Status Monitor", subtitle);
+    auto* f = new tsl::elm::OverlayFrame("状态监控", subtitle);
     f->setContent(content);
     return f;
 }
 
-// Convert a #RGB or #RGBA string to a fully-opaque tsl::Color for a color swatch.
-// Each hex nibble maps directly to the 4-bit RGBA4444 channel value.
+// 将 #RGB 或 #RGBA 字符串转换为完全不透明的 tsl::Color 用于颜色色块。
+// 每个十六进制半字节直接映射到 4 位 RGBA4444 通道值。
 inline tsl::Color hexToSwatchColor(const std::string& hex) {
     if (hex.size() < 4 || hex[0] != '#') return tsl::Color(0xF, 0xF, 0xF, 0xF);
     auto nibble = [](char c) -> u8 {
@@ -212,17 +212,16 @@ inline tsl::Color hexToSwatchColor(const std::string& hex) {
     return tsl::Color(nibble(hex[1]), nibble(hex[2]), nibble(hex[3]), 0xF);
 }
 
-// Unicode filled square used as a color swatch in list item values.
+// 用于列表项颜色色块的 Unicode 实心方块。
 static const std::string COLOR_SWATCH = "■";
 
-// Special-chars vector for drawStringWithColoredSections — routes ■ to the swatch color.
+// drawStringWithColoredSections 的特殊字符向量 — 将 ■ 路由到色块颜色。
 static const std::vector<std::string> COLOR_SWATCH_SPECIAL = { COLOR_SWATCH };
 
-// Template: isMini=true uses MiniListItem height, isMini=false uses full ListItem height.
-// Renders the swatch in its true color by stripping it from m_value before the parent
-// draws (no double-composite / anti-alias fringe), then drawing it once via
-// drawStringWithColoredSections with the stored swatch color. The checkmark and focus
-// highlight draw normally through the parent.
+// 模板：isMini=true 使用 MiniListItem 高度，isMini=false 使用完整 ListItem 高度。
+// 通过在父类渲染之前从 m_value 中剥离色块以显示其真实颜色
+// （无双重合成/抗锯齿边缘），然后通过 drawStringWithColoredSections
+// 使用存储的色块颜色绘制一次。勾选标记和焦点高亮由父类正常绘制。
 template<bool isMini>
 class ColorSwatchListItemT : public std::conditional_t<isMini, tsl::elm::MiniListItem, tsl::elm::ListItem> {
     using Base = std::conditional_t<isMini, tsl::elm::MiniListItem, tsl::elm::ListItem>;
@@ -236,11 +235,10 @@ public:
         const std::string full = this->m_value;
 
         // x = getX() + getWidth() - textWidth(full,20) - 19
-        // (equivalent to drawValue's getX() + m_maxWidth + 47 with full value)
         const s32 fullValueWidth = renderer->getTextDimensions(full, false, 20).first;
         const s32 swatchX = this->getX() + this->getWidth() - fullValueWidth - 19;
 
-        // Strip the swatch so the parent never renders it.
+        // 剥离色块，使父类不会渲染它。
         std::string withoutSwatch = full;
         const auto pos = withoutSwatch.find(COLOR_SWATCH);
         if (pos != std::string::npos) {
@@ -254,7 +252,7 @@ public:
         this->m_value    = full;
         this->m_maxWidth = 0;
 
-        // Draw the swatch once in m_swatchColor at the correct position.
+        // 在正确位置以 m_swatchColor 绘制色块一次。
         static constexpr s32 fontSize   = 20;
         static constexpr u16 itemHeight = isMini ? tsl::style::MiniListItemDefaultHeight
                                                  : tsl::style::ListItemDefaultHeight;
@@ -269,49 +267,49 @@ private:
     tsl::Color m_swatchColor;
 };
 
-// ColorConfig navigation rows (full height); ColorSelector palette rows (mini height).
+// ColorConfig 导航行（完整高度）；ColorSelector 调色板行（mini 高度）。
 using ColorSwatchListItem     = ColorSwatchListItemT<false>;
 using MiniColorSwatchListItem = ColorSwatchListItemT<true>;
 
-// Shared color palette used by ColorSelector.
+// ColorSelector 使用的共享颜色调色板。
 static const std::vector<std::pair<std::string, std::string>> g_colorPalette = {
-    {"Black","#000"},        {"Charcoal","#222"},     {"Dark Gray","#444"},
-    {"Gray","#666"},         {"Light Gray","#999"},   {"Silver","#CCC"},
-    {"Off-White","#EEE"},    {"White","#FFF"},
+    {"黑色","#000"},        {"炭黑","#222"},     {"深灰","#444"},
+    {"灰色","#666"},         {"浅灰","#999"},   {"银色","#CCC"},
+    {"米白","#EEE"},    {"白色","#FFF"},
 
-    {"Dark Red","#200"},     {"Maroon","#700"},       {"Crimson","#B22"},
-    {"Red","#F00"},          {"Light Red","#F66"},    {"Salmon","#FAA"},
+    {"深红","#200"},     {"栗色","#700"},       {"绯红","#B22"},
+    {"红色","#F00"},          {"浅红","#F66"},    {"鲑红","#FAA"},
 
-    {"Dark Orange","#520"},  {"Burnt Orange","#A40"}, {"Orange","#F80"},
-    {"Light Orange","#FB6"}, {"Peach","#FC8"},
+    {"深橙","#520"},  {"焦橙","#A40"}, {"橙色","#F80"},
+    {"浅橙","#FB6"}, {"蜜桃","#FC8"},
 
-    {"Dark Yellow","#220"},  {"Gold","#CA0"},         {"Yellow","#FF0"},
-    {"Light Yellow","#FF6"}, {"Cream","#FFC"},
+    {"暗黄","#220"},  {"金色","#CA0"},         {"黄色","#FF0"},
+    {"浅黄","#FF6"}, {"奶油","#FFC"},
 
-    {"Dark Green","#020"},   {"Forest Green","#063"}, {"Green","#080"},
-    {"Lime Green","#0C0"},   {"Bright Green","#0F0"}, {"Light Green","#8F8"},
-    {"Mint","#CFA"},
+    {"深绿","#020"},   {"森林绿","#063"}, {"绿色","#080"},
+    {"酸橙绿","#0C0"},   {"亮绿","#0F0"}, {"浅绿","#8F8"},
+    {"薄荷","#CFA"},
 
-    {"Dark Teal","#022"},    {"Teal","#066"},         {"Aqua","#0AA"},
-    {"Cyan","#0FF"},         {"Light Cyan","#8FF"},
+    {"深青","#022"},    {"蓝绿","#066"},         {"水绿","#0AA"},
+    {"青色","#0FF"},         {"浅青","#8FF"},
 
-    {"Midnight Blue","#002"},{"Dark Blue","#003"},    {"Navy","#04A"},
-    {"Royal Blue","#06F"},   {"Blue","#00F"},         {"Light Blue","#2DF"},
-    {"Sky Blue","#8CF"},     {"Powder Blue","#ACE"},
+    {"午夜蓝","#002"},{"深蓝","#003"},    {"海军蓝","#04A"},
+    {"皇家蓝","#06F"},   {"蓝色","#00F"},         {"浅蓝","#2DF"},
+    {"天蓝","#8CF"},     {"粉蓝","#ACE"},
 
-    {"Dark Purple","#202"},  {"Eggplant","#404"},     {"Indigo","#608"},
-    {"Purple","#808"},       {"Violet","#A0F"},       {"Lavender","#C8F"},
-    {"Light Lavender","#D9F"},
+    {"深紫","#202"},  {"茄紫","#404"},     {"靛蓝","#608"},
+    {"紫色","#808"},       {"紫罗兰","#A0F"},       {"薰衣草","#C8F"},
+    {"浅薰衣草","#D9F"},
 
-    {"Dark Magenta","#606"}, {"Magenta","#F0F"},      {"Hot Pink","#F4A"},
-    {"Pink","#F8A"},         {"Light Pink","#FCE"},
+    {"深品红","#606"}, {"品红","#F0F"},      {"艳粉","#F4A"},
+    {"粉红","#F8A"},         {"浅粉","#FCE"},
 
-    {"Dark Brown","#321"},   {"Brown","#642"},        {"Light Brown","#A75"},
-    {"Tan","#DB8"},
+    {"深棕","#321"},   {"棕色","#642"},        {"浅棕","#A75"},
+    {"棕褐","#DB8"},
 };
 
 // =============================================================================
-// Mode Combo helpers
+// 模式快捷键辅助函数
 // =============================================================================
 
 static constexpr const char* const g_defaultModeCombos[] = {
@@ -410,7 +408,7 @@ inline void writeModeCombo(int modeIdx, const std::string& combo) {
 }
 
 // =============================================================================
-// Alpha Selector
+// 透明度选择器
 // =============================================================================
 class AlphaSelector : public tsl::Gui {
 private:
@@ -430,24 +428,14 @@ public:
 
         const std::string section = modeToSection(modeName);
         std::string currentColor = ult::parseValueFromIniSection(configIniPath, section, colorKey);
-        if (currentColor.empty()) {
-            currentColor = "#0009"; // Default
-        }
-        std::string currentAlpha = extractAlphaFromColor(currentColor);
-        
-        // Alpha options
-        static const std::vector<std::pair<std::string, char>> alphaOptions = {
-            {"Transparent", '0'},
-            {"10%", '1'},
-            {"20%", '3'},
-            {"30%", '4'},
-            {"40%", '6'},
-            {"50%", '8'},
-            {"60%", '9'},
-            {"70%", 'B'},
-            {"80%", 'C'},
-            {"90%", 'E'},
-            {"Opaque", 'F'}
+        if (currentColor.empty()) currentColor = "#0009";
+        const std::string currentAlpha = extractAlphaFromColor(currentColor);
+
+        static const std::pair<std::string, char> alphaOptions[16] = {
+            {"0%",'0'},   {"7%",'1'},   {"13%",'2'},  {"20%",'3'},
+            {"27%",'4'},  {"33%",'5'},  {"40%",'6'},  {"47%",'7'},
+            {"53%",'8'},  {"60%",'9'},  {"67%",'A'},  {"73%",'B'},
+            {"80%",'C'},  {"87%",'D'},  {"93%",'E'},  {"100%",'F'}
         };
 
         for (const auto& option : alphaOptions) {
@@ -468,10 +456,7 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Alpha");
-        rootFrame->setContent(list);
-        return rootFrame;
+        return makeFrame("透明度", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -488,38 +473,59 @@ public:
     }
 };
 
-
-// Define available DTC format options
-static const std::vector<std::pair<std::string, std::string>> dtcFormats = {
-    // Special
-    {"Pretty", "%a, %b %d"+ult::DIVIDER_SYMBOL+"%I:%M %p"},
-    {"Compact", "%Y%m%d"+ult::DIVIDER_SYMBOL+"%H:%M:%S"},
-    {"FileSafe", "%Y-%m-%d"+ult::DIVIDER_SYMBOL+"%H-%M-%S"},
-    {"Day+Time", "%a"+ult::DIVIDER_SYMBOL+"%H:%M"},
-
-    // Datetime (default included here)
-    {"Date+Time(s)", "%m-%d-%Y"+ult::DIVIDER_SYMBOL+"%H:%M:%S"},           // default
-    {"Date+Time AM/PM", "%m-%d-%Y"+ult::DIVIDER_SYMBOL+"%I:%M %p"},
-    {"Date+Time(s) AM/PM", "%m-%d-%Y"+ult::DIVIDER_SYMBOL+"%I:%M:%S %p"},
-    {"Date+Time EU", "%d/%m/%Y"+ult::DIVIDER_SYMBOL+"%H:%M"},
-    {"Date+Time EU AM/PM", "%d/%m/%Y"+ult::DIVIDER_SYMBOL+"%I:%M %p"},
-    {"Date+Time(s) EU AM/PM", "%d/%m/%Y"+ult::DIVIDER_SYMBOL+"%I:%M:%S %p"},
-    {"Date+Time ISO", "%Y-%m-%dT"+ult::DIVIDER_SYMBOL+"%H:%M:%S"},
-
-    // Time only
-    {"Time 24h", "%H:%M"},
-    {"Time AM/PM", "%I:%M %p"},
-    {"Time(s) 24h", "%H:%M:%S"},
-    {"Time(s) AM/PM", "%I:%M:%S %p"},
-
-    // Date only
-    {"Date US", "%m-%d-%Y"},
-    {"Date EU", "%d/%m/%Y"},
-    {"Date ISO", "%Y-%m-%d"},
-    {"Date Short", "%m/%d/%y"}
+// =============================================================================
+// 时间格式配置
+// =============================================================================
+struct DTCFormatEntry {
+    std::string label;
+    std::string fmt;
+};
+struct DTCFormatCategory {
+    std::string header;
+    std::vector<DTCFormatEntry> entries;
 };
 
-// DTC Format Configuration (Mini/Micro only)
+static const std::vector<DTCFormatCategory> dtcFormatCategories = {
+    {"时间", {
+        {"24小时制",    "%H:%M"},
+        {"24小时制(秒)", "%H:%M:%S"},
+        {"12小时制",    "%l:%M %p"},
+        {"12小时制(秒)", "%l:%M:%S %p"}
+    }},
+    {"日期", {
+        {"US 日期(横杠)",   "%m-%d-%Y"},
+        {"US 日期(斜杠)",  "%m/%d/%Y"},
+        {"EU 日期(横杠)",   "%d-%m-%Y"},
+        {"EU 日期(斜杠)",  "%d/%m/%Y"},
+        {"ISO 日期",        "%Y-%m-%d"},
+        {"ISO 日期(斜杠)", "%Y/%m/%d"},
+        {"短日期 US",   "%m/%d/%y"},
+        {"短日期 EU",   "%d/%m/%y"},
+        {"紧凑日期",    "%Y%m%d"}
+    }},
+    {"星期/月", {
+        {"短星期+日期",  "%a, %b %d"},
+        {"完整星期+日期","%A, %B %d"},
+        {"星期(缩写)",    "%a"},
+        {"星期(完整)",    "%A"},
+        {"月份(缩写)",    "%b"},
+        {"月份(完整)",    "%B"},
+        {"月份/年",     "%b %Y"},
+        {"年中第几天",   "%j"},
+    }},
+};
+
+static const std::vector<std::pair<std::string, std::string>>& getDTCFormatsFlat() {
+    static const std::vector<std::pair<std::string, std::string>> flat = []() {
+        std::vector<std::pair<std::string, std::string>> out;
+        for (const auto& cat : dtcFormatCategories)
+            for (const auto& e : cat.entries)
+                out.push_back({e.label, e.fmt});
+        return out;
+    }();
+    return flat;
+}
+
 class DTCFormatConfig : public tsl::Gui {
 private:
     std::string modeName;
@@ -532,7 +538,10 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("DTC Format"));
+        const std::string section = modeToSection(modeName);
+        const std::string iniKey  = (slot == 2) ? "dtc_format_2" : "dtc_format_1";
+        const std::string title   = (slot == 2) ? "时间格式 2" : "时间格式 1";
+        const bool isMiniMode     = (modeName == "Mini");
 
         std::string currentValue = ult::parseValueFromIniSection(configIniPath, section, iniKey);
         if (currentValue.empty()) {
@@ -541,7 +550,7 @@ public:
         }
 
         if (slot == 2) {
-            list->addItem(new tsl::elm::CategoryHeader("None"));
+            list->addItem(new tsl::elm::CategoryHeader("无"));
             auto* noneItem = new tsl::elm::MiniListItem(ult::OPTION_SYMBOL);
             if (currentValue == ult::OPTION_SYMBOL)
                 selectItem(lastSelectedListItem, noneItem, ult::CHECKMARK_SYMBOL);
@@ -577,17 +586,14 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "DTC Format");
-        rootFrame->setContent(list);
-        return rootFrame;
+        return makeFrame(title, list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = (slot == 2) ? "DTC Format 2" : "DTC Format 1";
+            jumpItemName = (slot == 2) ? "时间格式 2" : "时间格式 1";
             jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
@@ -597,13 +603,13 @@ public:
 };
 
 // =============================================================================
-// Toggles Configuration
+// 开关配置
 // =============================================================================
 class TogglesConfig : public tsl::Gui {
 private:
     std::string modeName;
     ModeFlags   flags;
-    std::string section; // cached once
+    std::string section; // 缓存一次
 
     void addToggle(tsl::elm::List* list, const std::string& label,
                    const std::string& key, bool defaultVal,
@@ -625,209 +631,139 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Toggles"));
-        
-        if (isFPSGraphMode) {
-            // FPS Graph: show_info and disable_screenshots
-            auto* showInfo = new tsl::elm::ToggleListItem("Info", getCurrentShowInfo());
-            showInfo->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "fps-graph", "show_info", state ? "true" : "false");
-            });
-            list->addItem(showInfo);
 
-            auto* dynamicColors = new tsl::elm::ToggleListItem("Use Dynamic Colors", getCurrentUseDynamicColors());
-            dynamicColors->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "fps-graph", "use_dynamic_colors", state ? "true" : "false");
-            });
-            list->addItem(dynamicColors);
+        if (flags.isFPSGraph) {
+            list->addItem(new tsl::elm::CategoryHeader("全局"));
+            addToggle(list, "禁用截图",    "disable_screenshots", false);
+            addToggle(list, "显示信息",    "show_info",           true);
+            addToggle(list, "动态色彩",    "use_dynamic_colors",  true);
+            addToggle(list, "整数 FPS",    "integer_fps",         true);
 
-            auto* disableScreenshots = new tsl::elm::ToggleListItem("Disable Screenshots", getCurrentDisableScreenshots("fps-graph"));
-            disableScreenshots->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "fps-graph", "disable_screenshots", state ? "true" : "false");
-            });
-            list->addItem(disableScreenshots);
-            
-        } else if (isFullMode) {
-            // Full mode: specific full toggles
-            auto* realFreqs = new tsl::elm::ToggleListItem("Real Freqs", getCurrentShowRealFreqs());
-            realFreqs->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "full", "show_real_freqs", state ? "true" : "false");
-            });
-            list->addItem(realFreqs);
-            
-            auto* showDeltas = new tsl::elm::ToggleListItem("Deltas", getCurrentShowDeltas());
-            showDeltas->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "full", "show_deltas", state ? "true" : "false");
-            });
-            list->addItem(showDeltas);
-            
-            auto* targetFreqs = new tsl::elm::ToggleListItem("Target Freqs", getCurrentShowTargetFreqs());
-            targetFreqs->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "full", "show_target_freqs", state ? "true" : "false");
-            });
-            list->addItem(targetFreqs);
-            
-            auto* showFPS = new tsl::elm::ToggleListItem("FPS", getCurrentShowFPS());
-            showFPS->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "full", "show_fps", state ? "true" : "false");
-            });
-            list->addItem(showFPS);
-            
-            auto* showRES = new tsl::elm::ToggleListItem("RES", getCurrentShowRES());
-            showRES->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "full", "show_res", state ? "true" : "false");
-            });
-            list->addItem(showRES);
-            
-            auto* showRDSD = new tsl::elm::ToggleListItem("Read Speed", getCurrentShowRDSD());
-            showRDSD->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "full", "show_read_speed", state ? "true" : "false");
-            });
-            list->addItem(showRDSD);
+        } else if (flags.isFull) {
+            list->addItem(new tsl::elm::CategoryHeader("全局"));
+            addToggle(list, "禁用截图",    "disable_screenshots", false);
+            addToggle(list, "实际频率",    "show_real_freqs",     true);
+            addToggle(list, "目标频率",    "show_target_freqs",   true);
+            addToggle(list, "频率差值",    "show_deltas",         true);
+            addToggle(list, "FPS",         "show_fps",            true);
+            addToggle(list, "分辨率",      "show_res",            true);
+            addToggle(list, "读取速度",    "show_read_speed",     true);
+            addToggle(list, "动态色彩",    "use_dynamic_colors",  true);
 
-            auto* dynamicColors = new tsl::elm::ToggleListItem("Use Dynamic Colors", getCurrentUseDynamicColors());
-            dynamicColors->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "fps-graph", "use_dynamic_colors", state ? "true" : "false");
-            });
-            list->addItem(dynamicColors);
+        } else if (flags.isMini || flags.isMicro) {
+            list->addItem(new tsl::elm::CategoryHeader("全局"));
+            addToggle(list, "1080p 底座",  "use_1080p_docked",   true);
+            addToggle(list, "禁用截图",    "disable_screenshots", false);
 
-            auto* disableScreenshots = new tsl::elm::ToggleListItem("Disable Screenshots", getCurrentDisableScreenshots("full"));
-            disableScreenshots->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "full", "disable_screenshots", state ? "true" : "false");
-            });
-            list->addItem(disableScreenshots);
-            
-        } else if (isMiniMode || isMicroMode) {
-            // Mini/Micro modes: shared toggles
-            const std::string section = isMiniMode ? "mini" : "micro";
-            
-            if (isMiniMode) {
-                auto* showLabels = new tsl::elm::ToggleListItem("Labels", getCurrentShowLabels());
-                showLabels->setStateChangedListener([this, section](bool state) {
-                    ult::setIniFileValue(configIniPath, section, "show_labels", state ? "true" : "false");
+            if (flags.isMini)
+                addToggle(list, "显示标签", "show_labels", true);
+
+            addToggle(list, "实际频率",    "real_freqs",          true);
+            addToggle(list, "实际电压",    "real_volts",          true);
+            addToggle(list, "动态色彩",    "use_dynamic_colors",  true);
+
+            list->addItem(new tsl::elm::CategoryHeader("CPU"));
+            addToggle(list, "完整 CPU",              "show_full_cpu",              true);
+            addToggle(list, "完整 CPU 最大核心 0-2", "show_full_cpu_max_core_012", flags.isMini);
+            addToggle(list, "堆叠完整 CPU",          "show_stacked_full_cpu",      flags.isMicro);
+            addToggle(list, "CPU 温度",              "show_cpu_temp",              flags.isMicro);
+            addToggle(list, "堆叠 CPU 温度",         "show_stacked_cpu_temp",      true);
+            addToggle(list, "末端电压",              "voltage_at_end_cpu",         flags.isMicro);
+
+            list->addItem(new tsl::elm::CategoryHeader("GPU"));
+            addToggle(list, "GPU 温度",         "show_gpu_temp",         flags.isMicro);
+            addToggle(list, "堆叠 GPU 温度",    "show_stacked_gpu_temp", true);
+            addToggle(list, "末端电压",         "voltage_at_end_gpu",    true);
+
+            list->addItem(new tsl::elm::CategoryHeader("RAM"));
+            addToggle(list, "内存带宽",               "show_ram_bandwidth",               true);
+            addToggle(list, "堆叠内存带宽",           "show_stacked_ram_bandwidth",       true);
+            addToggle(list, "内存负载 CPU/GPU",       "show_RAM_load_CPU_GPU",            false);
+            addToggle(list, "堆叠内存负载 CPU/GPU",   "show_stacked_ram_load_cpu_gpu",    true);
+
+            if (isMariko)
+                addToggle(list, "VDD2", "show_vdd2", true);
+
+            addToggle(list, "VDDQ", "show_vddq", flags.isMini);
+
+            if (isMariko)
+                addToggle(list, "堆叠 VDD2/VDDQ", "show_stacked_vddq", true);
+
+            addToggle(list, "RAM 温度",         "show_ram_temp",         flags.isMicro);
+            addToggle(list, "堆叠 RAM 温度",    "show_stacked_ram_temp", true);
+            addToggle(list, "末端电压",         "voltage_at_end_ram",    flags.isMicro);
+
+            list->addItem(new tsl::elm::CategoryHeader("温度"));
+            {
+                // 互斥对
+                auto* compTemps   = new tsl::elm::MiniToggleListItem("CPU/GPU/RAM 温度",
+                    readBool(section, "show_component_temps", true));
+                auto* socPcbTemps = new tsl::elm::MiniToggleListItem("SOC/PCB/Skin 温度",
+                    readBool(section, "show_soc_pcb_skin_temps", true));
+
+                compTemps->setStateChangedListener([this, compTemps, socPcbTemps](bool state) {
+                    if (!state && !socPcbTemps->getState()) {
+                        compTemps->setState(true);
+                        ult::setIniFileValue(configIniPath, section, "show_component_temps", "true");
+                    } else {
+                        ult::setIniFileValue(configIniPath, section, "show_component_temps",
+                                            state ? "true" : "false");
+                    }
                 });
-                list->addItem(showLabels);
+                socPcbTemps->setStateChangedListener([this, compTemps, socPcbTemps](bool state) {
+                    if (!state && !compTemps->getState()) {
+                        socPcbTemps->setState(true);
+                        ult::setIniFileValue(configIniPath, section, "show_soc_pcb_skin_temps", "true");
+                    } else {
+                        ult::setIniFileValue(configIniPath, section, "show_soc_pcb_skin_temps",
+                                            state ? "true" : "false");
+                    }
+                });
+                list->addItem(compTemps);
+                list->addItem(socPcbTemps);
+
+                if (flags.isMicro)
+                    addToggle(list, "堆叠温度", "show_stacked_temps", true);
             }
 
-            auto* realFreqs = new tsl::elm::ToggleListItem("Real Frequencies", getCurrentRealFreqs());
-            realFreqs->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "real_freqs", state ? "true" : "false");
-            });
-            list->addItem(realFreqs);
-            
-            auto* realVolts = new tsl::elm::ToggleListItem("Real Voltages", getCurrentRealVolts());
-            realVolts->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "real_volts", state ? "true" : "false");
-            });
-            list->addItem(realVolts);
-            
-            auto* showFullCPU = new tsl::elm::ToggleListItem("Full CPU", getCurrentShowFullCPU());
-            showFullCPU->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "show_full_cpu", state ? "true" : "false");
-            });
-            list->addItem(showFullCPU);
-            
-            auto* showVDDQ = new tsl::elm::ToggleListItem("VDDQ", getCurrentShowVDDQ());
-            showVDDQ->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "show_vddq", state ? "true" : "false");
-            });
-            list->addItem(showVDDQ);
+            addToggle(list, "SOC 电压",       "show_soc_voltage",     true);
+            addToggle(list, "堆叠风扇/SOC",   "show_stacked_fan_soc", true);
+            addToggle(list, "末端电压",       "voltage_at_end_tmp",   true);
 
-            auto* showVDD2 = new tsl::elm::ToggleListItem("VDD2", getCurrentShowVDD2());
-            showVDD2->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "show_vdd2", state ? "true" : "false");
-            });
-            list->addItem(showVDD2);
+            list->addItem(new tsl::elm::CategoryHeader("分辨率"));
+            addToggle(list, "完整分辨率", "show_full_res", true);
+            addToggle(list, "仅主屏",    "show_primary_res", flags.isMicro);
 
-            auto* showFullRes = new tsl::elm::ToggleListItem("Full Resolution", getCurrentShowFullRes());
-            showFullRes->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "show_full_res", state ? "true" : "false");
-            });
-            list->addItem(showFullRes);
-            
-            auto* socVoltage = new tsl::elm::ToggleListItem("SOC Voltage", getCurrentShowSOCVoltage());
-            socVoltage->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "show_soc_voltage", state ? "true" : "false");
-            });
-            list->addItem(socVoltage);
+            list->addItem(new tsl::elm::CategoryHeader("FPS"));
+            addToggle(list, "整数 FPS", "integer_fps", true);
 
-            if (isMiniMode) {
-                auto* ramLoadCPUGPU = new tsl::elm::ToggleListItem("RAM Load CPU/GPU", getCurrentShowRAMLoadCPUGPU());
-                ramLoadCPUGPU->setStateChangedListener([this, section](bool state) {
-                    ult::setIniFileValue(configIniPath, section, "show_RAM_load_CPU_GPU", state ? "true" : "false");
-                });
-                list->addItem(ramLoadCPUGPU);
-            }
+            list->addItem(new tsl::elm::CategoryHeader("电池"));
+            addToggle(list, "反转电池显示", "invert_battery_display", true);
+            addToggle(list, "堆叠",         "show_stacked_bat",       flags.isMicro);
 
-            if (isMiniMode || isMicroMode) {
-                auto* invertBatteryDisplay = new tsl::elm::ToggleListItem("Invert Battery Display", getCurrentInvertBatteryDisplay());
-                invertBatteryDisplay->setStateChangedListener([this, section](bool state) {
-                    ult::setIniFileValue(configIniPath, section, "invert_battery_display", state ? "true" : "false");
-                });
-                list->addItem(invertBatteryDisplay);
-            }
-            
-            auto* dtcSymbol = new tsl::elm::ToggleListItem("Use DTC Symbol", getCurrentUseDTCSymbol());
-            dtcSymbol->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "use_dtc_symbol", state ? "true" : "false");
-            });
-            list->addItem(dtcSymbol);
+            list->addItem(new tsl::elm::CategoryHeader("DTC"));
+            addToggle(list, "使用 DTC 符号", "use_dtc_symbol",   true);
+            addToggle(list, "堆叠",          "show_stacked_dtc", flags.isMicro);
 
-            auto* dynamicColors = new tsl::elm::ToggleListItem("Use Dynamic Colors", getCurrentUseDynamicColors());
-            dynamicColors->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "use_dynamic_colors", state ? "true" : "false");
-            });
-            list->addItem(dynamicColors);
+        } else if (flags.isGameRes) {
+            list->addItem(new tsl::elm::CategoryHeader("全局"));
+            addToggle(list, "禁用截图", "disable_screenshots", false);
 
-            auto* disableScreenshots = new tsl::elm::ToggleListItem("Disable Screenshots", getCurrentDisableScreenshots(section));
-            disableScreenshots->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "disable_screenshots", state ? "true" : "false");
-            });
-            list->addItem(disableScreenshots);
-
-            auto* sleepExit = new tsl::elm::ToggleListItem("Sleep Exit", getCurrentSleepExit(section));
-            sleepExit->setStateChangedListener([this, section](bool state) {
-                ult::setIniFileValue(configIniPath, section, "sleep_exit", state ? "true" : "false");
-            });
-            list->addItem(sleepExit);
-            
-        } else if (isGameResolutionsMode) {
-            // Game Resolutions mode: only disable_screenshots
-            auto* disableScreenshots = new tsl::elm::ToggleListItem("Disable Screenshots", getCurrentDisableScreenshots("game_resolutions"));
-            disableScreenshots->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "game_resolutions", "disable_screenshots", state ? "true" : "false");
-            });
-            list->addItem(disableScreenshots);
-            
-        } else if (isFPSCounterMode) {
-            // FPS Counter mode: only disable_screenshots
-            auto* integerCounter = new tsl::elm::ToggleListItem("Use Integer Counter", getCurrentUseIntegerCounter("fps-counter"));
-            integerCounter->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "fps-counter", "use_integer_counter", state ? "true" : "false");
-            });
-            list->addItem(integerCounter);
-
-            // FPS Counter mode: only disable_screenshots
-            auto* disableScreenshots = new tsl::elm::ToggleListItem("Disable Screenshots", getCurrentDisableScreenshots("fps-counter"));
-            disableScreenshots->setStateChangedListener([this](bool state) {
-                ult::setIniFileValue(configIniPath, "fps-counter", "disable_screenshots", state ? "true" : "false");
-            });
-            list->addItem(disableScreenshots);
+        } else if (flags.isFPSCounter) {
+            list->addItem(new tsl::elm::CategoryHeader("全局"));
+            addToggle(list, "1080p 底座",  "use_1080p_docked",   true);
+            addToggle(list, "禁用截图",    "disable_screenshots", false);
+            addToggle(list, "整数 FPS",    "integer_fps",         true);
         }
 
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
-        {
-            jumpItemName = "";
-            jumpItemValue = "";
-            jumpItemExactMatch = false;
-        }
+        clearJump();
 
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Configuration");
-        rootFrame->setContent(list);
-        return rootFrame;
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
-    
-    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
             tsl::goBack();
@@ -838,7 +774,7 @@ public:
 };
 
 // =============================================================================
-// Refresh Rate Configuration
+// 刷新率配置
 // =============================================================================
 class RefreshRateConfig : public tsl::Gui {
 private:
@@ -857,7 +793,7 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("刷新频率"));
+        list->addItem(new tsl::elm::CategoryHeader("刷新率"));
 
         const std::string section = modeToSection(modeName);
         static const int rates[] = {1, 2, 3, 5, 10, 15, 30, 60};
@@ -877,17 +813,14 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Configuration");
-        rootFrame->setContent(list);
-        return rootFrame;
+            return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = "Refresh Rate"; jumpItemValue = ""; jumpItemExactMatch = false;
+            jumpItemName = "刷新率"; jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -896,7 +829,7 @@ public:
 };
 
 // =============================================================================
-// Mode Combo Configuration
+// 模式快捷键配置
 // =============================================================================
 class ModeComboConfig : public tsl::Gui {
 private:
@@ -914,7 +847,7 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("快捷键"));
+        list->addItem(new tsl::elm::CategoryHeader("模式快捷键"));
 
         {
             auto* noneItem = new tsl::elm::ListItem(ult::OPTION_SYMBOL);
@@ -958,14 +891,14 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = "Mode Combo"; jumpItemValue = ""; jumpItemExactMatch = false;
+            jumpItemName = "模式快捷键"; jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -974,7 +907,7 @@ public:
 };
 
 // =============================================================================
-// Frame Padding Configuration
+// 帧填充配置
 // =============================================================================
 class FramePaddingConfig : public tsl::Gui {
 private:
@@ -992,7 +925,7 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Frame Padding"));
+        list->addItem(new tsl::elm::CategoryHeader("帧填充"));
 
         for (int padding = 0; padding <= 14; ++padding) {
             auto* paddingItem = new tsl::elm::MiniListItem(std::to_string(padding) + " px");
@@ -1010,17 +943,14 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Configuration");
-        rootFrame->setContent(list);
-        return rootFrame;
+            return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = "Frame Padding"; jumpItemValue = ""; jumpItemExactMatch = false;
+            jumpItemName = "帧填充"; jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -1029,10 +959,10 @@ public:
 };
 
 // =============================================================================
-// Micro Padding Configs (Horizontal / Vertical / Label)
+// Micro 填充配置（水平 / 垂直 / 标签）
 // =============================================================================
 
-// Shared implementation for all three Micro padding screens.
+// 所有三个 Micro 填充屏幕的共享实现。
 template<int DEFAULT, int MIN_P, int MAX_P>
 class MicroPaddingConfigBase : public tsl::Gui {
 protected:
@@ -1069,7 +999,7 @@ public:
             list->addItem(item);
         }
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame("Micro " + ult::DIVIDER_SYMBOL + " Configuration", list);
+        return makeFrame("Micro " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1086,12 +1016,12 @@ public:
 
 class MicroHPaddingConfig : public MicroPaddingConfigBase<8, 0, 20> {
 public:
-    MicroHPaddingConfig() : MicroPaddingConfigBase("horizontal_padding", "Horizontal Padding", "Horizontal Padding") {}
+    MicroHPaddingConfig() : MicroPaddingConfigBase("horizontal_padding", "水平填充", "水平填充") {}
 };
 
 class MicroVPaddingConfig : public MicroPaddingConfigBase<2, 0, 20> {
 public:
-    MicroVPaddingConfig() : MicroPaddingConfigBase("vertical_padding", "Vertical Padding", "Vertical Padding") {}
+    MicroVPaddingConfig() : MicroPaddingConfigBase("vertical_padding", "垂直填充", "垂直填充") {}
 };
 
 class MicroLabelPaddingConfig : public MicroPaddingConfigBase<0, 4, 12> {
@@ -1099,21 +1029,21 @@ class MicroLabelPaddingConfig : public MicroPaddingConfigBase<0, 4, 12> {
 protected:
     std::string formatLabel(int p) const override {
         std::string s = std::to_string(p) + " px";
-        if (p == autoDefault) s += " (default)";
+        if (p == autoDefault) s += " (默认)";
         return s;
     }
 public:
-    MicroLabelPaddingConfig() : MicroPaddingConfigBase("label_padding", "Label Padding", "Label Padding") {
+    MicroLabelPaddingConfig() : MicroPaddingConfigBase("label_padding", "标签填充", "标签填充") {
         const std::string fsVal = ult::parseValueFromIniSection(configIniPath, "micro", "handheld_font_size");
         const int fs = fsVal.empty() ? 15 : atoi(fsVal.c_str());
         autoDefault = (fs <= 16) ? 6 : (fs <= 20 ? 8 : 10);
-        // currentPadding==0 means "auto"; snap display to autoDefault
+        // currentPadding==0 表示 "auto"；将显示值设置为 autoDefault
         if (currentPadding == 0) currentPadding = autoDefault;
     }
 };
 
 // =============================================================================
-// Font Size Selector
+// 字号选择器
 // =============================================================================
 class FontSizeSelector : public tsl::Gui {
 private:
@@ -1125,17 +1055,17 @@ private:
 public:
     FontSizeSelector(const std::string& mode, const std::string& type)
         : modeName(mode), fontType(type), flags(mode) {
-        // Build a human-readable title for the header and back-navigation jump.
+        // 为标题和返回导航跳转构建可读标题。
         if (fontType == "handheld")
-            title = "Handheld Font Size";
+            title = "掌机模式 字号";
         else if (fontType == "docked")
-            title = "Docked Font Size";
+            title = "底座字号";
         else if (fontType == "docked_1080p")
-            title = "1080p Docked Font Size";
+            title = "1080p 底座字号";
         else {
             title = fontType;
             title[0] = std::toupper(title[0]);
-            title += " Font Size";
+            title += " 字号";
         }
     }
     ~FontSizeSelector() { lastSelectedListItem = nullptr; }
@@ -1148,7 +1078,7 @@ public:
         const std::string keyName = fontType + "_font_size";
         const std::string currentValue = ult::parseValueFromIniSection(configIniPath, section, keyName);
 
-        // Default sizes per type; 1080p defaults are ~1.5× the 720p docked defaults.
+        // 每种类型的默认大小；1080p 默认值约为 720p 底座默认值的 1.5 倍。
         int defaultSize;
         if (fontType == "docked_1080p")
             defaultSize = flags.isFPSCounter ? 60 : 22;
@@ -1158,7 +1088,7 @@ public:
         const int currentSize = currentValue.empty() ? defaultSize : atoi(currentValue.c_str());
 
         const int minSize = 8;
-        // 1080p allows larger values since 1px = 1px (no 1.5× VI scale).
+        // 1080p 允许更大的值，因为 1px = 1px（无 1.5× VI 缩放）。
         int maxSize;
         if (fontType == "docked_1080p")
             maxSize = flags.isFPSCounter ? 225 : (flags.isMini ? 33 : 27);
@@ -1181,10 +1111,7 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Font Sizes");
-        rootFrame->setContent(list);
-        return rootFrame;
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置 " + ult::DIVIDER_SYMBOL + " 字号", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1200,7 +1127,7 @@ public:
 };
 
 // =============================================================================
-// Font Size Configuration
+// 字号配置
 // =============================================================================
 class FontSizeConfig : public tsl::Gui {
 private:
@@ -1212,50 +1139,36 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Font Sizes"));
-        
-        std::string section;
-        if (isMiniMode) section = "mini";
-        else if (isMicroMode) section = "micro";
-        else if (isFPSCounterMode) section = "fps-counter";
-        
-        const std::string handheldValue = ult::parseValueFromIniSection(configIniPath, section, "handheld_font_size");
-        const std::string dockedValue = ult::parseValueFromIniSection(configIniPath, section, "docked_font_size");
-        
-        int defaultSize = isFPSCounterMode ? 40 : 15;
-        const int handheldSize = handheldValue.empty() ? defaultSize : atoi(handheldValue.c_str());
-        const int dockedSize = dockedValue.empty() ? defaultSize : atoi(dockedValue.c_str());
-        
-        auto* handheldItem = new tsl::elm::ListItem("Handheld Font Size");
-        handheldItem->setValue(std::to_string(handheldSize) + " pt");
-        handheldItem->setClickListener([this, handheldItem](uint64_t keys) {
-            if (keys & KEY_A) {
-                //tsl::shiftItemFocus(handheldItem);
-                tsl::changeTo<FontSizeSelector>(modeName, "handheld");
-                return true;
-            }
-            return false;
-        });
-        list->addItem(handheldItem);
-        
-        auto* dockedItem = new tsl::elm::ListItem("Docked Font Size");
-        dockedItem->setValue(std::to_string(dockedSize) + " pt");
-        dockedItem->setClickListener([this, dockedItem](uint64_t keys) {
-            if (keys & KEY_A) {
-                //tsl::shiftItemFocus(dockedItem);
-                tsl::changeTo<FontSizeSelector>(modeName, "docked");
-                return true;
-            }
-            return false;
-        });
-        list->addItem(dockedItem);
-        
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Configuration");
-        rootFrame->setContent(list);
+        list->addItem(new tsl::elm::CategoryHeader("字号"));
+
+        const std::string section = modeToSection(modeName);
+        const int defaultSize      = flags.isFPSCounter ? 40 : 15;
+        const int default1080pSize = flags.isFPSCounter ? 60 : 22;
+
+        auto makeItem = [&](const std::string& label, const std::string& key,
+                            const std::string& type, int defSz) {
+            const std::string val = ult::parseValueFromIniSection(configIniPath, section, key);
+            const int sz = val.empty() ? defSz : atoi(val.c_str());
+            auto* item = new tsl::elm::ListItem(label);
+            item->setValue(std::to_string(sz) + " pt");
+            item->setClickListener([this, type](uint64_t keys) {
+                if (keys & KEY_A) {
+                    tsl::changeTo<FontSizeSelector>(modeName, type);
+                    return true;
+                }
+                return false;
+            });
+            list->addItem(item);
+        };
+
+        makeItem("掌机模式",     "handheld_font_size",     "handheld",    defaultSize);
+        makeItem("底座",       "docked_font_size",       "docked",      defaultSize);
+        makeItem("1080p 底座", "docked_1080p_font_size", "docked_1080p", default1080pSize);
+
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
         clearJump();
 
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1270,7 +1183,7 @@ public:
 };
 
 // =============================================================================
-// Color Selector
+// 颜色选择器
 // =============================================================================
 class ColorSelector : public tsl::Gui {
 private:
@@ -1303,63 +1216,9 @@ public:
         const std::string section = modeToSection(modeName);
         std::string currentValue = ult::parseValueFromIniSection(configIniPath, section, colorKey);
         if (currentValue.empty()) currentValue = defaultValue;
-        
-        // Extract the color without alpha for comparison (for backgrounds and text colors)
-        std::string currentColorWithoutAlpha = extractColorWithoutAlpha(currentValue);
-        
-        // Updated colors list with comprehensive color palette
-        static const std::vector<std::pair<std::string, std::string>> colors = {
-            // Grays & Basics
-            {"Black", "#000F"},
-            {"Dark Gray", "#333F"},
-            {"Gray", "#444F"},
-            {"Light Gray", "#888F"},
-            {"Silver", "#CCCF"},
-            {"White", "#FFFF"},
-            
-            // Reds
-            {"Dark Red", "#800F"},
-            {"Red", "#F00F"},
-            {"Light Red", "#F88F"},
-            {"Pink", "#F8AF"},
-            
-            // Greens
-            {"Dark Green", "#080F"},
-            {"Green", "#0F0F"},
-            {"Lime Green", "#0C0F"},
-            {"Light Green", "#8F8F"},
-            
-            // Blues
-            {"Dark Blue", "#003F"},
-            {"Blue", "#00FF"},
-            {"Light Blue", "#2DFF"},
-            {"Sky Blue", "#8CFF"},
-            
-            // Purples
-            {"Dark Purple", "#808F"},
-            {"Purple", "#80FF"},
-            {"Light Purple", "#C8FF"},
-            {"Violet", "#A0FF"},
-            
-            // Yellows & Oranges
-            {"Orange", "#F80F"},
-            {"Yellow", "#FF0F"},
-            {"Light Yellow", "#FFCF"},
-            
-            // Cyans & Teals
-            {"Teal", "#088F"},
-            {"Cyan", "#0FFF"},
-            {"Light Cyan", "#8FFF"},
-            
-            // Magentas & Pinks
-            {"Magenta", "#F0FF"},
-            {"Hot Pink", "#F8CF"},
-            
-            // Browns
-            {"Brown", "#840F"},
-            {"Light Brown", "#A86F"}
-        };
-        
+
+        const std::string currentColorWithoutAlpha = extractColorWithoutAlpha(currentValue);
+
         std::string _jumpItemValue;
         for (const auto& color : g_colorPalette) {
             auto* colorItem = new MiniColorSwatchListItem(color.first);
@@ -1405,11 +1264,9 @@ public:
             });
             list->addItem(colorItem);
         }
+
         list->jumpToItem("", _jumpItemValue, false);
-        
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Colors");
-        rootFrame->setContent(list);
-        return rootFrame;
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置 " + ult::DIVIDER_SYMBOL + " 颜色", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1425,415 +1282,126 @@ public:
 };
 
 // =============================================================================
-// Color Configuration
+// 颜色配置
 // =============================================================================
 class ColorConfig : public tsl::Gui {
 private:
     std::string modeName;
-    bool isMiniMode;
-    bool isMicroMode;
-    bool isFullMode;
-    bool isGameResolutionsMode;
-    bool isFPSCounterMode;
-    bool isFPSGraphMode;
-    
-public:
-    ColorConfig(const std::string& mode) : modeName(mode) {
-        isMiniMode = (mode == "Mini");
-        isMicroMode = (mode == "Micro");
-        isFullMode = (mode == "Full");
-        isGameResolutionsMode = (mode == "Game Resolutions");
-        isFPSCounterMode = (mode == "FPS Counter");
-        isFPSGraphMode = (mode == "FPS Graph");
-        
-        // Full mode should never access color configuration
-        //if (isFullMode) {
-        //    // This should not happen, but if it does, go back
-        //    tsl::goBack();
-        //}
-    }
-    
-    virtual tsl::elm::Element* createUI() override {
-        auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Colors"));
-        
-        auto getCurrentColor = [this](const std::string& key, const std::string& def) {
-            std::string section;
-            if (isMiniMode) section = "mini";
-            else if (isMicroMode) section = "micro";
-            else if (isFullMode) section = "full";
-            else if (isGameResolutionsMode) section = "game_resolutions";
-            else if (isFPSCounterMode) section = "fps-counter";
-            else if (isFPSGraphMode) section = "fps-graph";
-            
-            std::string value = ult::parseValueFromIniSection(configIniPath, section, key);
-            return value.empty() ? def : value;
-        };
-        
-        auto getColorName = [](const std::string& hexColor) -> std::string {
-            // Extract RGB without alpha for comparison
-            std::string rgb = hexColor;
-            if (hexColor.length() == 5 && hexColor[0] == '#') {
-                rgb = hexColor.substr(0, 4);
-            }
-            
-            // Map of hex colors to names (RGB only, no alpha)
-            static const std::map<std::string, std::string> colorNames = {
-                // Grays & Basics
-                {"#000", "Black"},
-                {"#333", "Dark Gray"},
-                {"#444", "Gray"},
-                {"#888", "Light Gray"},
-                {"#CCC", "Silver"},
-                {"#FFF", "White"},
-                
-                // Reds
-                {"#800", "Dark Red"},
-                {"#F00", "Red"},
-                {"#F88", "Light Red"},
-                {"#F8A", "Pink"},
-                
-                // Greens
-                {"#080", "Dark Green"},
-                {"#0F0", "Green"},
-                {"#0C0", "Lime Green"},
-                {"#8F8", "Light Green"},
-                
-                // Blues
-                {"#003", "Dark Blue"},
-                {"#00F", "Blue"},
-                {"#2DF", "Light Blue"},
-                {"#8CF", "Sky Blue"},
-                
-                // Purples
-                {"#808", "Dark Purple"},
-                {"#80F", "Purple"},
-                {"#C8F", "Light Purple"},
-                {"#A0F", "Violet"},
-                
-                // Yellows & Oranges
-                {"#F80", "Orange"},
-                {"#FF0", "Yellow"},
-                {"#FFC", "Light Yellow"},
-                
-                // Cyans & Teals
-                {"#088", "Teal"},
-                {"#0FF", "Cyan"},
-                {"#8FF", "Light Cyan"},
-                
-                // Magentas & Pinks
-                {"#F0F", "Magenta"},
-                {"#F8C", "Hot Pink"},
-                
-                // Browns
-                {"#840", "Brown"},
-                {"#A86", "Light Brown"}
-            };
-            
-            auto it = colorNames.find(rgb);
-            if (it != colorNames.end()) {
-                // Special case for black/transparent disambiguation
-                if (rgb == "#000" && hexColor.length() == 5) {
-                    char alpha = hexColor[4];
-                    if (alpha == '0') return "Transparent";
-                    else return "Black";
-                }
-                return it->second;
-            }
-            return rgb; // Return hex if no name found
-        };
-        
-        auto getAlphaPercentage = [](const std::string& color) -> std::string {
-            if (color.length() == 5 && color[0] == '#') {
-                char alpha = color[4];
-                switch(alpha) {
-                    case '0': return "0%";
-                    case '1': return "10%";
-                    case '3': return "20%";
-                    case '4': return "30%";
-                    case '6': return "40%";
-                    case '8': return "50%";
-                    case '9': return "60%";
-                    case 'B': case 'b': return "70%";
-                    case 'C': case 'c': return "80%";
-                    case 'E': case 'e': return "90%";
-                    case 'F': case 'f': return "100%";
-                    default: return "60%";
-                }
-            }
-            return "60%";
-        };
-        
-        if (!isFullMode) {
-            // Background Color (all modes)
-            auto* bgColor = new tsl::elm::ListItem("Background Color");
-            std::string bgDefault = "#0009";
-            std::string bgCurrentColor = getCurrentColor("background_color", bgDefault);
-            // Display color name instead of hex
-            bgColor->setValue(getColorName(bgCurrentColor));
-            bgColor->setClickListener([this, bgColor, bgDefault](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(bgColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Background Color", "background_color", bgDefault);
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(bgColor);
-            
-            // Background Alpha (new)
-            auto* bgAlpha = new tsl::elm::ListItem("Background Alpha");
-            bgAlpha->setValue(getAlphaPercentage(bgCurrentColor));
-            bgAlpha->setClickListener([this, bgAlpha](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(bgAlpha);
-                    tsl::changeTo<AlphaSelector>(modeName, "background_color", "Background Alpha");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(bgAlpha);
-        
-            if (isMiniMode || isFPSCounterMode || isFPSGraphMode || isGameResolutionsMode) {
-                // Mini mode: has focus background
-                auto* focusBgColor = new tsl::elm::ListItem("Focus Color");
-                std::string focusCurrentColor = getCurrentColor("focus_background_color", "#000F");
-                focusBgColor->setValue(getColorName(focusCurrentColor));
-                focusBgColor->setClickListener([this, focusBgColor](uint64_t keys) {
-                    if (keys & KEY_A) {
-                        //tsl::shiftItemFocus(focusBgColor);
-                        tsl::changeTo<ColorSelector>(modeName, "Focus Color", "focus_background_color", "#000F");
-                        return true;
-                    }
-                    return false;
-                });
-                list->addItem(focusBgColor);
-                
-                // Focus Alpha (new)
-                auto* focusAlpha = new tsl::elm::ListItem("Focus Alpha");
-                focusAlpha->setValue(getAlphaPercentage(focusCurrentColor));
-                focusAlpha->setClickListener([this, focusAlpha](uint64_t keys) {
-                    if (keys & KEY_A) {
-                        //tsl::shiftItemFocus(focusAlpha);
-                        tsl::changeTo<AlphaSelector>(modeName, "focus_background_color", "Focus Alpha");
-                        return true;
-                    }
-                    return false;
-                });
-                list->addItem(focusAlpha);
-            }
-        }
+    ModeFlags   flags;
 
-        // Text Color (all modes)
-        auto* textColor = new tsl::elm::ListItem("Text Color");
-        std::string textCurrentColor = getCurrentColor("text_color", "#FFFF");
-        // Display color name for text colors
-        textColor->setValue(getColorName(textCurrentColor));
-        textColor->setClickListener([this, textColor](uint64_t keys) {
+    std::string getCurrentColor(const std::string& key, const std::string& def) const {
+        const std::string section = modeToSection(modeName);
+        std::string value = ult::parseValueFromIniSection(configIniPath, section, key);
+        return value.empty() ? def : value;
+    }
+
+    void addColorItem(tsl::elm::List* list, const std::string& label,
+                      const std::string& key, const std::string& def) {
+        const std::string currentColor = getCurrentColor(key, def);
+        auto* item = new ColorSwatchListItem(label);
+        item->setValue(COLOR_SWATCH);
+        item->setSwatchColor(hexToSwatchColor(extractColorWithoutAlpha(currentColor)));
+        item->setClickListener([this, label, key, def](uint64_t keys) {
             if (keys & KEY_A) {
-                //tsl::shiftItemFocus(textColor);
-                tsl::changeTo<ColorSelector>(modeName, "Text Color", "text_color", "#FFFF");
+                tsl::changeTo<ColorSelector>(modeName, label, key, def);
                 return true;
             }
             return false;
         });
-        list->addItem(textColor);
-        
-        if (isFPSGraphMode) {
-            // FPS Graph specific colors
-            struct ColorSetting {
-                std::string name;
-                std::string key;
-                std::string defaultVal;
-                bool isBackgroundType;  // true for colors that allow alpha adjustment
-            };
-            
-            // Game Resolutions: only category color (no separator)
-            auto* catColor = new tsl::elm::ListItem("Category Color");
-            catColor->setValue(getColorName(getCurrentColor("cat_color", "#0F0F")));
-            catColor->setClickListener([this, catColor](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(catColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color", "cat_color", "#0F0F");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(catColor);
+        list->addItem(item);
+    }
 
-            static const std::vector<ColorSetting> fpsGraphColors = {
-                {"FPS Counter", "fps_counter_color", "#888C", true},      // background type
-                {"Border", "border_color", "#2DFF", false},               // text type
-                {"Dashed Line", "dashed_line_color", "#8888", true},      // background type
-                {"Max FPS Text", "max_fps_text_color", "#FFFF", false},   // text type
-                {"Min FPS Text", "min_fps_text_color", "#FFFF", false},   // text type
-                {"Main Line", "main_line_color", "#FFFF", false},         // text type
-                {"Rounded Line", "rounded_line_color", "#F0FF", false},   // text type
-                {"Perfect Line", "perfect_line_color", "#0C0F", false}    // text type
+    void addColorWithAlpha(tsl::elm::List* list, const std::string& colorLabel,
+                           const std::string& key, const std::string& def,
+                           const std::string& alphaLabel) {
+        const std::string currentColor = getCurrentColor(key, def);
+        auto* colorItem = new ColorSwatchListItem(colorLabel);
+        colorItem->setValue(COLOR_SWATCH);
+        colorItem->setSwatchColor(hexToSwatchColor(extractColorWithoutAlpha(currentColor)));
+        colorItem->setClickListener([this, colorLabel, key, def](uint64_t keys) {
+            if (keys & KEY_A) {
+                tsl::changeTo<ColorSelector>(modeName, colorLabel, key, def);
+                return true;
+            }
+            return false;
+        });
+        list->addItem(colorItem);
+
+        auto* alphaItem = new tsl::elm::ListItem(alphaLabel);
+        alphaItem->setValue(getAlphaPercentage(currentColor));
+        alphaItem->setClickListener([this, key, alphaLabel](uint64_t keys) {
+            if (keys & KEY_A) {
+                tsl::changeTo<AlphaSelector>(modeName, key, alphaLabel);
+                return true;
+            }
+            return false;
+        });
+        list->addItem(alphaItem);
+    }
+
+public:
+    ColorConfig(const std::string& mode) : modeName(mode), flags(mode) {}
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader("颜色"));
+
+        if (!flags.isFull) {
+            addColorWithAlpha(list, "背景颜色", "background_color",       "#0009", "背景透明度");
+            if (flags.isMini || flags.isMicro || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes)
+                addColorWithAlpha(list, "焦点颜色",  "focus_background_color", "#000F", "焦点透明度");
+        } else {
+            addColorWithAlpha(list, "背景颜色", "background_color",       "#0009", "背景透明度");
+        }
+
+        addColorItem(list, "文字颜色", "text_color", "#FFFF");
+
+        if (flags.isFPSGraph) {
+            addColorItem(list, "分类颜色", "cat_color", "#0F0F");
+
+            struct FPSGraphColorSetting {
+                const char* name; const char* key; const char* def; bool hasAlpha;
             };
-            
-            for (const auto& color : fpsGraphColors) {
-                auto* colorItem = new tsl::elm::ListItem(color.name + " Color");
-                const std::string currentVal = getCurrentColor(color.key, color.defaultVal);
-                
-                if (color.isBackgroundType) {
-                    // For background-type colors, show color name
-                    colorItem->setValue(getColorName(currentVal));
-                } else {
-                    // For text-type colors, show color name
-                    colorItem->setValue(getColorName(currentVal));
-                }
-                
-                colorItem->setClickListener([this, colorItem, color](uint64_t keys) {
-                    if (keys & KEY_A) {
-                        //tsl::shiftItemFocus(colorItem);
-                        tsl::changeTo<ColorSelector>(modeName, color.name, color.key, color.defaultVal);
-                        return true;
-                    }
-                    return false;
-                });
-                list->addItem(colorItem);
-                
-                // Add alpha selector for background-type colors
-                if (color.isBackgroundType) {
-                    auto* alphaItem = new tsl::elm::ListItem(color.name + " Alpha");
-                    alphaItem->setValue(getAlphaPercentage(currentVal));
-                    alphaItem->setClickListener([this, alphaItem, color](uint64_t keys) {
-                        if (keys & KEY_A) {
-                            //tsl::shiftItemFocus(alphaItem);
-                            tsl::changeTo<AlphaSelector>(modeName, color.key, color.name + " Alpha");
-                            return true;
-                        }
-                        return false;
-                    });
-                    list->addItem(alphaItem);
-                }
+            static const FPSGraphColorSetting fpsGraphColors[] = {
+                {"FPS 计数器",   "fps_counter_color",  "#888C", true},
+                {"边框",       "border_color",        "#2DFF", false},
+                {"虚线",       "dashed_line_color",   "#8888", true},
+                {"最大 FPS 文字","max_fps_text_color",  "#FFFF", false},
+                {"最小 FPS 文字","min_fps_text_color",  "#FFFF", false},
+                {"主线",        "main_line_color",     "#FFFF", false},
+                {"圆角线",      "rounded_line_color",  "#F0FF", false},
+                {"完美线",      "perfect_line_color",  "#0C0F", false},
+            };
+            for (const auto& c : fpsGraphColors) {
+                if (c.hasAlpha)
+                    addColorWithAlpha(list,
+                        std::string(c.name) + " 颜色", c.key, c.def,
+                        std::string(c.name) + " 透明度");
+                else
+                    addColorItem(list, std::string(c.name) + " 颜色", c.key, c.def);
             }
 
-        } else if (isFullMode) {
-            auto* catColor1 = new tsl::elm::ListItem("Category Color 1");
-            // Display color name for category colors
-            catColor1->setValue(getColorName(getCurrentColor("cat_color_1", "#8FFF")));
-            catColor1->setClickListener([this, catColor1](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(catColor1);
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color 1", "cat_color_1", "#8FFF");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(catColor1);
+        } else if (flags.isFull) {
+            addColorItem(list, "分类颜色 1", "cat_color_1",    "#8FFF");
+            addColorItem(list, "分类颜色 2", "cat_color_2",    "#2DFF");
+            addColorItem(list, "分隔线颜色",  "separator_color","#888F");
 
-            auto* catColor2 = new tsl::elm::ListItem("Category Color 2");
-            // Display color name for category colors
-            catColor2->setValue(getColorName(getCurrentColor("cat_color_2", "#2DFF")));
-            catColor2->setClickListener([this, catColor2](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(catColor2);
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color 2", "cat_color_2", "#2DFF");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(catColor2);
-    
-            auto* sepColor = new tsl::elm::ListItem("Separator Color");
-            // Display color name for separator colors
-            sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
-            sepColor->setClickListener([this, sepColor](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(sepColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Separator Color", "separator_color", "#888F");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(sepColor);
-        } else if (isMiniMode) {
-            auto* catColor = new tsl::elm::ListItem("Category Color");
-            // Display color name for category colors
-            catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
-            catColor->setClickListener([this, catColor](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(catColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color", "cat_color", "#2DFF");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(catColor);
-    
-            auto* sepColor = new tsl::elm::ListItem("Separator Color");
-            // Display color name for separator colors
-            sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
-            sepColor->setClickListener([this, sepColor](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(sepColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Separator Color", "separator_color", "#888F");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(sepColor);
-            
-        } else if (isMicroMode) {
-            auto* catColor = new tsl::elm::ListItem("Category Color");
-            catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
-            catColor->setClickListener([this, catColor](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(catColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color", "cat_color", "#2DFF");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(catColor);
-            
-            // Micro mode: separator and category colors (no focus background like Mini)
-            auto* sepColor = new tsl::elm::ListItem("Separator Color");
-            sepColor->setValue(getColorName(getCurrentColor("separator_color", "#888F")));
-            sepColor->setClickListener([this, sepColor](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(sepColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Separator Color", "separator_color", "#888F");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(sepColor);
-            
-            
-        } else if (isGameResolutionsMode) {
-            // Game Resolutions: only category color (no separator)
-            auto* catColor = new tsl::elm::ListItem("Category Color");
-            catColor->setValue(getColorName(getCurrentColor("cat_color", "#2DFF")));
-            catColor->setClickListener([this, catColor](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(catColor);
-                    tsl::changeTo<ColorSelector>(modeName, "Category Color", "cat_color", "#2DFF");
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(catColor);
+        } else if (flags.isMini || flags.isMicro) {
+            addColorItem(list, "分类颜色", "cat_color",       "#2DFF");
+            addColorItem(list, "分隔线颜色", "separator_color", "#888F");
+
+        } else if (flags.isGameRes) {
+            addColorItem(list, "分类颜色", "cat_color", "#2DFF");
         }
-        // FPS Counter mode: only background and text colors (already added above)
-        // Full mode: NO color settings at all (excluded from this function)
-        
+
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
-        {
-            jumpItemName = "";
-            jumpItemValue = "";
-            jumpItemExactMatch = false;
-        }
-        
-        //list->disableCaching();
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Configuration");
-        rootFrame->setContent(list);
-        return rootFrame;
+        clearJump();
+
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
-    
-    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
             tsl::goBack();
@@ -1844,7 +1412,7 @@ public:
 };
 
 // =============================================================================
-// Show Configuration (Mini/Micro only)
+// 显示配置（仅 Mini/Micro）
 // =============================================================================
 class ShowConfig : public tsl::Gui {
 private:
@@ -1860,7 +1428,8 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Elements " + ult::DIVIDER_SYMBOL + " \uE0E3 Move Down " + ult::DIVIDER_SYMBOL + " \uE0E2 Move Up"));
+        list->addItem(new tsl::elm::CategoryHeader(
+            "条目 " + ult::DIVIDER_SYMBOL + " \uE0E3 下移 " + ult::DIVIDER_SYMBOL + " \uE0E2 上移"));
 
         const std::string section = isMiniMode ? "mini" : "micro";
         std::string showValue  = ult::parseValueFromIniSection(configIniPath, section, "show");
@@ -1871,43 +1440,16 @@ public:
         convertToUpper(showValue);
 
         enabledElements.clear();
-        ult::StringStream ss(showValue);
-        std::string item;
-        while (ss.getline(item, '+')) {
-            if (!item.empty()) {
-                enabledElements.insert(item);
-            }
+        {
+            ult::StringStream ss(showValue);
+            std::string item;
+            while (ss.getline(item, '+'))
+                if (!item.empty()) enabledElements.insert(item);
         }
-        
-        elementOrder.clear();
-        if (!orderValue.empty()) {
-            convertToUpper(orderValue);
-            ult::StringStream orderSS(orderValue);
-            std::string orderItem;
-            while (orderSS.getline(orderItem, '+')) {
-                if (!orderItem.empty()) {
-                    elementOrder.push_back(orderItem);
-                }
-            }
-        } else {
-            ult::StringStream ss2(showValue);
-            while (ss2.getline(item, '+')) {
-                if (!item.empty()) {
-                    elementOrder.push_back(item);
-                }
-            }
-        }
-                
-        static constexpr std::string_view miniElements[] = {
-            "DTC","BAT","CPU","GPU","RAM","MEM","READ","SOC","TMP","FPS","RES"
-        };
-        
-        static constexpr std::string_view microElements[] = {
-            "FPS","CPU","GPU","RAM","READ","SOC","TMP","RES","BAT","DTC"
-        };
-        
-        // Use span or array reference instead of pointer
-        const auto* allElements = isMiniMode ? miniElements : microElements;
+
+        static constexpr std::string_view miniElements[]  = {"DTC","BAT","CPU","GPU","RAM","MEM","READ","SOC","TMP","FPS","RES"};
+        static constexpr std::string_view microElements[] = {"FPS","CPU","GPU","RAM","READ","SOC","TMP","RES","BAT","DTC"};
+        const auto* allElements    = isMiniMode ? miniElements : microElements;
         const size_t allElementsSize = isMiniMode ? std::size(miniElements) : std::size(microElements);
 
         elementOrder.clear();
@@ -1927,13 +1469,13 @@ public:
 
         for (size_t i = 0; i < elementOrder.size(); i++) {
             const std::string& element = elementOrder[i];
-            const bool isEnabled = enabledElements.find(element) != enabledElements.end();
-            
-            auto* elementItem = new tsl::elm::ListItem(element);
+            const bool isEnabled = enabledElements.count(element) > 0;
+
+            auto* elementItem = new tsl::elm::MiniListItem(element);
             elementItem->enableShortHoldKey();
             elementItem->enableLongHoldKey();
             elementItem->setValue(isEnabled ? ult::ON : ult::OFF, !isEnabled);
-            
+
             elementItem->setClickListener([this, elementItem, element](uint64_t keys) {
                 static bool hasNotTriggeredAnimation = false;
                 if (hasNotTriggeredAnimation) {
@@ -1941,29 +1483,27 @@ public:
                     hasNotTriggeredAnimation = false;
                 }
                 if (keys & KEY_A) {
-                    // Dynamic elements (FPS, RES, READ) only render when a game is running,
-                    // so they don't count as "always visible". Block turning off an always-showing
-                    // element if it would leave no always-showing elements enabled.
+                    // 动态条目（FPS、RES、READ）仅在游戏运行时渲染，
+                    // 因此不计为"始终可见"。阻止关闭始终显示的条目，
+                    // 如果关闭后没有始终显示的条目保持启用状态。
                     static const std::unordered_set<std::string> dynamicElements = {"FPS", "RES", "READ"};
                     if (enabledElements.count(element)) {
-                        // Turning OFF — guard against leaving zero always-showing elements
+                        // 关闭 — 防止留下零个始终显示的条目
                         if (dynamicElements.count(element) == 0) {
-                            // Count always-showing elements that would remain enabled after removal
+                            // 计算移除后仍保持启用的始终显示条目
                             int alwaysOnAfter = 0;
                             for (const auto& e : enabledElements) {
                                 if (e != element && dynamicElements.count(e) == 0)
                                     alwaysOnAfter++;
                             }
-                            if (alwaysOnAfter == 0) return true; // Block: last always-showing element
+                            if (alwaysOnAfter == 0) return true; // 阻止：最后一个始终显示的条目
                         }
                         enabledElements.erase(element);
                     } else {
                         enabledElements.insert(element);
                     }
                     updateShowAndOrder();
-                    jumpItemName = element;
-                    jumpItemValue = "";
-                    jumpItemExactMatch = true;
+                    jumpItemName = element; jumpItemValue = ""; jumpItemExactMatch = true;
                     hasNotTriggeredAnimation = true;
                     tsl::swapTo<ShowConfig>(SwapDepth(1), modeName);
                     return true;
@@ -1995,10 +1535,7 @@ public:
                         triggerMoveFeedback();
                     }
                     updateShowAndOrder();
-                    jumpItemName = element;
-                    jumpItemValue = "";
-                    jumpItemExactMatch = true;
-                    
+                    jumpItemName = element; jumpItemValue = ""; jumpItemExactMatch = true;
                     tsl::swapTo<ShowConfig>(SwapDepth(1), modeName);
                     return true;
                 }
@@ -2008,18 +1545,13 @@ public:
         }
 
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
-        {
-            jumpItemName = "";
-            jumpItemValue = "";
-            jumpItemExactMatch = false;
-        }
-        
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", "Configuration");
-        rootFrame->setContent(list);
-        return rootFrame;
+        clearJump();
+
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
     }
-    
-    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos, HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
             tsl::goBack();
@@ -2049,7 +1581,7 @@ private:
 };
 
 // =============================================================================
-// Main Configurator Overlay
+// 主配置器覆盖层
 // =============================================================================
 class ConfiguratorOverlay : public tsl::Gui {
 private:
@@ -2122,32 +1654,32 @@ private:
     std::string getCurrentTextAlign() const {
         std::string value = ult::parseValueFromIniSection(configIniPath, "micro", "text_align");
         convertToUpper(value);
-        if (value == "LEFT")  return "Left";
-        if (value == "RIGHT") return "Right";
-        return "Center";
+        if (value == "LEFT")  return "左";
+        if (value == "RIGHT") return "右";
+        return "居中";
     }
 
     std::string getCurrentLayerPosRight() const {
         const std::string section = modeToSection(modeName);
         std::string value = ult::parseValueFromIniSection(configIniPath, section, "layer_width_align");
         convertToUpper(value);
-        if (value == "RIGHT")  return "Right";
-        if (!flags.isFull && value == "CENTER") return "Center";
-        return "Left";
+        if (value == "RIGHT")  return "右";
+        if (!flags.isFull && value == "CENTER") return "居中";
+        return "左";
     }
 
     std::string getCurrentLayerPosBottom() const {
         const std::string section = modeToSection(modeName);
         std::string value = ult::parseValueFromIniSection(configIniPath, section, "layer_height_align");
         convertToUpper(value);
-        if (value == "BOTTOM") return "Bottom";
-        if (!flags.isMicro && value == "CENTER") return "Center";
-        return "Top";
+        if (value == "BOTTOM") return "下";
+        if (!flags.isMicro && value == "CENTER") return "居中";
+        return "上";
     }
 
     std::string cycleTextAlign() {
         const std::string current = getCurrentTextAlign();
-        const std::string next = (current == "Left") ? "Center" : (current == "Center") ? "Right" : "Left";
+        const std::string next = (current == "左") ? "居中" : (current == "居中") ? "右" : "左";
         ult::setIniFileValue(configIniPath, "micro", "text_align", next);
         return next;
     }
@@ -2157,10 +1689,10 @@ private:
         const std::string current = getCurrentLayerPosRight();
         std::string next;
         if (flags.isFull)
-            next = (current == "Left") ? "Right" : "Left";
+            next = (current == "左") ? "右" : "左";
         else
-            next = (current == "Left") ? "Center" : (current == "Center") ? "Right" : "Left";
-        const std::string value = (next == "Right") ? "right" : (next == "Center" ? "center" : "left");
+            next = (current == "左") ? "居中" : (current == "居中") ? "右" : "左";
+        const std::string value = (next == "右") ? "right" : (next == "居中" ? "center" : "left");
         ult::setIniFileValue(configIniPath, section, "layer_width_align", value);
         return next;
     }
@@ -2170,10 +1702,10 @@ private:
         const std::string current = getCurrentLayerPosBottom();
         std::string next;
         if (flags.isMicro)
-            next = (current == "Top") ? "Bottom" : "Top";
+            next = (current == "上") ? "下" : "上";
         else
-            next = (current == "Top") ? "Center" : (current == "Center") ? "Bottom" : "Top";
-        const std::string value = (next == "Bottom") ? "bottom" : (next == "Center" ? "center" : "top");
+            next = (current == "上") ? "居中" : (current == "居中") ? "下" : "上";
+        const std::string value = (next == "下") ? "bottom" : (next == "居中" ? "center" : "top");
         ult::setIniFileValue(configIniPath, section, "layer_height_align", value);
         return next;
     }
@@ -2183,11 +1715,11 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Configuration"));
-        
-        // 5. Elements (Mini/Micro only)
-        if (isMiniMode || isMicroMode) {
-            auto* showSettings = new tsl::elm::ListItem("Elements");
+        list->addItem(new tsl::elm::CategoryHeader("配置"));
+
+        // 条目（仅 Mini/Micro）
+        if (flags.isMini || flags.isMicro) {
+            auto* showSettings = new tsl::elm::ListItem("条目");
             showSettings->setValue(ult::DROPDOWN_SYMBOL);
             showSettings->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<ShowConfig>(modeName); return true; }
@@ -2196,40 +1728,31 @@ public:
             list->addItem(showSettings);
         }
 
-        // 3. Toggles (All modes)
-        //if (isMiniMode || isMicroMode || isFullMode || isFPSGraphMode) {
-        auto* toggles = new tsl::elm::ListItem("Toggles");
-        toggles->setValue(ult::DROPDOWN_SYMBOL);
-        toggles->setClickListener([this, toggles](uint64_t keys) {
-            if (keys & KEY_A) {
-                //tsl::shiftItemFocus(toggles);
-                tsl::changeTo<TogglesConfig>(modeName);
-                return true;
-            }
-            return false;
-        });
-        list->addItem(toggles);
-        //}
+        // 开关（所有模式）
+        {
+            auto* toggles = new tsl::elm::ListItem("开关");
+            toggles->setValue(ult::DROPDOWN_SYMBOL);
+            toggles->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<TogglesConfig>(modeName); return true; }
+                return false;
+            });
+            list->addItem(toggles);
+        }
 
-        // 2. Colors (not Full mode - it has no color settings)
-        //if (!isFullMode) {
-        auto* colors = new tsl::elm::ListItem("Colors");
-        colors->setValue(ult::DROPDOWN_SYMBOL);
-        colors->setClickListener([this, colors](uint64_t keys) {
-            if (keys & KEY_A) {
-                //tsl::shiftItemFocus(colors);
-                tsl::changeTo<ColorConfig>(modeName);
-                return true;
-            }
-            return false;
-        });
-        list->addItem(colors);
-        //}
-        
-        
-        // 4. Font Sizes (Mini/Micro/FPS Counter only)
-        if (isMiniMode || isMicroMode || isFPSCounterMode) {
-            auto* fontSizes = new tsl::elm::ListItem("Font Sizes");
+        // 颜色（所有模式）
+        {
+            auto* colors = new tsl::elm::ListItem("颜色");
+            colors->setValue(ult::DROPDOWN_SYMBOL);
+            colors->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<ColorConfig>(modeName); return true; }
+                return false;
+            });
+            list->addItem(colors);
+        }
+
+        // 字号（Mini/Micro/FPS 计数器）
+        if (flags.isMini || flags.isMicro || flags.isFPSCounter) {
+            auto* fontSizes = new tsl::elm::ListItem("字号");
             fontSizes->setValue(ult::DROPDOWN_SYMBOL);
             fontSizes->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<FontSizeConfig>(modeName); return true; }
@@ -2237,35 +1760,29 @@ public:
             });
             list->addItem(fontSizes);
         }
-        
-        // 1. Refresh Rate (all modes)
-        auto* refreshRate = new tsl::elm::ListItem("Refresh Rate");
-        refreshRate->setValue(std::to_string(getCurrentRefreshRate()) + " Hz");
-        refreshRate->setClickListener([this, refreshRate](uint64_t keys) {
-            if (keys & KEY_A) {
-                //tsl::shiftItemFocus(refreshRate);
-                tsl::changeTo<RefreshRateConfig>(modeName);
-                return true;
-            }
-            return false;
-        });
-        list->addItem(refreshRate);
-        
-        // 6. DTC Format (Mini/Micro only) - NEW ADDITION
-        if (isMiniMode || isMicroMode) {
-            auto* dtcFormat = new tsl::elm::ListItem("DTC Format");
-            dtcFormat->setValue(getCurrentDTCFormat());
-            dtcFormat->setClickListener([this, dtcFormat](uint64_t keys) {
-                if (keys & KEY_A) {
-                    //tsl::shiftItemFocus(dtcFormat);
-                    tsl::changeTo<DTCFormatConfig>(modeName);
-                    return true;
-                }
+
+        // 刷新率（所有模式）
+        {
+            auto* refreshRate = new tsl::elm::ListItem("刷新率");
+            refreshRate->setValue(std::to_string(getCurrentRefreshRate()) + " Hz");
+            refreshRate->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<RefreshRateConfig>(modeName); return true; }
+                return false;
+            });
+            list->addItem(refreshRate);
+        }
+
+        // 时间格式（仅 Mini/Micro）
+        if (flags.isMini || flags.isMicro) {
+            auto* dtcFormat1 = new tsl::elm::ListItem("时间格式 1");
+            dtcFormat1->setValue(getCurrentDTCFormatLabel(1));
+            dtcFormat1->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<DTCFormatConfig>(modeName, 1); return true; }
                 return false;
             });
             list->addItem(dtcFormat1);
 
-            auto* dtcFormat2 = new tsl::elm::ListItem("DTC Format 2");
+            auto* dtcFormat2 = new tsl::elm::ListItem("时间格式 2");
             dtcFormat2->setValue(getCurrentDTCFormatLabel(2));
             dtcFormat2->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<DTCFormatConfig>(modeName, 2); return true; }
@@ -2274,9 +1791,9 @@ public:
             list->addItem(dtcFormat2);
         }
 
-        // 7. Frame Padding (Mini only) - NEW ADDITION
-        if (isMiniMode || isGameResolutionsMode || isFPSCounterMode || isFPSGraphMode) {
-            auto* framePadding = new tsl::elm::ListItem("Frame Padding");
+        // 帧填充（Mini/游戏分辨率/FPS 计数器/FPS 图表）
+        if (flags.isMini || flags.isGameRes || flags.isFPSCounter || flags.isFPSGraph) {
+            auto* framePadding = new tsl::elm::ListItem("帧填充");
             framePadding->setValue(std::to_string(getCurrentFramePadding()) + " px");
             framePadding->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<FramePaddingConfig>(modeName); return true; }
@@ -2284,51 +1801,60 @@ public:
             });
             list->addItem(framePadding);
         }
-        
-        // 7. Mode-specific positioning settings
-        if (isMicroMode) {
-            // Text Alignment for Micro
-            auto* textAlign = new tsl::elm::ListItem("Text Alignment");
+
+        // 模式特定位置设置
+        if (flags.isMicro) {
+            auto* textAlign = new tsl::elm::ListItem("文字对齐");
             textAlign->setValue(getCurrentTextAlign());
             textAlign->setClickListener([this, textAlign](uint64_t keys) {
-                if (keys & KEY_A) {
-                    const std::string next = cycleTextAlign();
-                    textAlign->setValue(next);
-                    return true;
-                }
+                if (keys & KEY_A) { textAlign->setValue(cycleTextAlign()); return true; }
                 return false;
             });
             list->addItem(textAlign);
 
-            // Vertical Position for Micro (Top/Bottom only)
-            auto* layerPos = new tsl::elm::ListItem("Vertical Position");
+            auto* layerPos = new tsl::elm::ListItem("垂直位置");
             layerPos->setValue(getCurrentLayerPosBottom());
             layerPos->setClickListener([this, layerPos](uint64_t keys) {
-                if (keys & KEY_A) {
-                    const std::string next = cycleLayerPosBottom();
-                    layerPos->setValue(next);
-                    return true;
-                }
+                if (keys & KEY_A) { layerPos->setValue(cycleLayerPosBottom()); return true; }
                 return false;
             });
             list->addItem(layerPos);
-            
-        } else if (isFullMode) {
-            // Horizontal Position for Full (Left/Right only)
-            auto* layerPos = new tsl::elm::ListItem("Horizontal Position");
+
+            auto* hPadding = new tsl::elm::ListItem("水平填充");
+            hPadding->setValue(std::to_string(getCurrentMicroHPadding()) + " px");
+            hPadding->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroHPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(hPadding);
+
+            auto* vPadding = new tsl::elm::ListItem("垂直填充");
+            vPadding->setValue(std::to_string(getCurrentMicroVPadding()) + " px");
+            vPadding->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroVPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(vPadding);
+
+            auto* lPadding = new tsl::elm::ListItem("标签填充");
+            lPadding->setValue(std::to_string(getCurrentMicroLabelPadding()) + " px");
+            lPadding->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroLabelPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(lPadding);
+
+        } else if (flags.isFull) {
+            auto* layerPos = new tsl::elm::ListItem("水平位置");
             layerPos->setValue(getCurrentLayerPosRight());
             layerPos->setClickListener([this, layerPos](uint64_t keys) {
-                if (keys & KEY_A) {
-                    const std::string next = cycleLayerPosRight();
-                    layerPos->setValue(next);
-                    return true;
-                }
+                if (keys & KEY_A) { layerPos->setValue(cycleLayerPosRight()); return true; }
                 return false;
             });
             list->addItem(layerPos);
         }
 
-        // Mode Combo
+        // 模式快捷键
         {
             const int slotIdx = modeComboIndexFor(modeName);
             if (slotIdx >= 0) {
@@ -2336,12 +1862,9 @@ public:
                 if (comboDisplay.empty()) comboDisplay = ult::OPTION_SYMBOL;
                 else ult::convertComboToUnicode(comboDisplay);
 
-                auto* modeCombo = new tsl::elm::ListItem("Mode Combo", comboDisplay);
-                modeCombo->setClickListener([this, modeCombo](uint64_t keys) {
-                    if (keys & KEY_A) {
-                        tsl::changeTo<ModeComboConfig>(modeName);
-                        return true;
-                    }
+                auto* modeCombo = new tsl::elm::ListItem("模式快捷键", comboDisplay);
+                modeCombo->setClickListener([this](uint64_t keys) {
+                    if (keys & KEY_A) { tsl::changeTo<ModeComboConfig>(modeName); return true; }
                     return false;
                 });
                 list->addItem(modeCombo);
@@ -2349,13 +1872,9 @@ public:
         }
 
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch.load(std::memory_order_acquire));
-        {
-            jumpItemName = "";
-            jumpItemValue = "";
-            jumpItemExactMatch = false;
-        }
-        
-        tsl::elm::OverlayFrame* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", modeName);
+        clearJump();
+
+        auto* rootFrame = new tsl::elm::OverlayFrame("状态监控", modeName);
         rootFrame->setContent(list);
         return rootFrame;
     }
@@ -2369,184 +1888,5 @@ public:
             return true;
         }
         return false;
-    }
-    
-private:
-    int getCurrentRefreshRate() {
-        std::string section;
-        if (isMiniMode) section = "mini";
-        else if (isMicroMode) section = "micro";
-        else if (isFullMode) section = "full";
-        else if (isGameResolutionsMode) section = "game_resolutions";
-        else if (isFPSCounterMode) section = "fps-counter";
-        else if (isFPSGraphMode) section = "fps-graph";
-        
-        std::string value = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        int defaultRate = (isGameResolutionsMode) ? 10 : ((isFPSCounterMode || isFPSGraphMode) ? 30 : 1);
-        return value.empty() ? defaultRate : atoi(value.c_str());
-    }
-    
-    // NEW METHOD: Get current DTC format for display
-    std::string getCurrentDTCFormat() {
-        if (isMiniMode || isMicroMode) {
-            const std::string section = isMiniMode ? "mini" : "micro";
-            std::string value = ult::parseValueFromIniSection(configIniPath, section, "dtc_format");
-            
-            // Handle defaults properly
-            if (value.empty()) {
-                value = isMiniMode ? "%m-%d-%Y"+ult::DIVIDER_SYMBOL+"%H:%M:%S" : "%H:%M:%S";
-            }
-            
-            // Convert format string to display name
-            return getDTCFormatName(value);
-        }
-        return "";
-    }
-    
-    // Helper function to convert format string to display name
-    std::string getDTCFormatName(const std::string& formatStr) {
-        
-        for (const auto& format : dtcFormats) {
-            if (format.second == formatStr) {
-                return format.first;
-            }
-        }
-        
-        // Return the format string itself if no match found
-        return formatStr;
-    }
-    
-    int getCurrentFramePadding() {
-        std::string section;
-        if (isMiniMode) section = "mini";
-        else if (isGameResolutionsMode) section = "game_resolutions";
-        else if (isFPSCounterMode) section = "fps-counter";
-        else if (isFPSGraphMode) section = "fps-graph";
-        else return 10;
-    
-        std::string value = ult::parseValueFromIniSection(configIniPath, section, "frame_padding");
-        return value.empty() ? 10 : atoi(value.c_str());
-    }
-    
-    std::string getCurrentTextAlign() {
-        if (isMicroMode) {
-            std::string value = ult::parseValueFromIniSection(configIniPath, "micro", "text_align");
-            convertToUpper(value);
-            if (value == "LEFT") return "Left";
-            if (value == "RIGHT") return "Right";
-            return "Center";
-        }
-        return "";
-    }
-    
-    std::string getCurrentLayerPosRight() {
-        std::string section;
-        if (isFullMode) section = "full";
-        else if (isGameResolutionsMode) section = "game_resolutions";
-        else if (isFPSCounterMode) section = "fps-counter";
-        else if (isFPSGraphMode) section = "fps-graph";
-        
-        std::string value = ult::parseValueFromIniSection(configIniPath, section, "layer_width_align");
-        convertToUpper(value);
-        
-        if (isFullMode) {
-            // Full mode: only Left and Right allowed
-            if (value == "RIGHT") return "Right";
-            return "Left";
-        } else {
-            // Other modes: allow Center
-            if (value == "RIGHT") return "Right";
-            if (value == "CENTER") return "Center";
-            return "Left";
-        }
-    }
-
-    std::string getCurrentLayerPosBottom() {
-        std::string section;
-        if (isMicroMode) section = "micro";
-        else if (isGameResolutionsMode) section = "game_resolutions";
-        else if (isFPSCounterMode) section = "fps-counter";
-        else if (isFPSGraphMode) section = "fps-graph";
-        
-        std::string value = ult::parseValueFromIniSection(configIniPath, section, "layer_height_align");
-        convertToUpper(value);
-        
-        if (isMicroMode) {
-            // Micro mode: only Top and Bottom allowed
-            if (value == "BOTTOM") return "Bottom";
-            return "Top";
-        } else {
-            // Other modes: allow Center
-            if (value == "BOTTOM") return "Bottom";
-            if (value == "CENTER") return "Center";
-            return "Top";
-        }
-    }
-    
-    std::string cycleTextAlign() {
-        if (isMicroMode) {
-            const std::string current = getCurrentTextAlign();
-            std::string next;
-            if (current == "Left") next = "Center";
-            else if (current == "Center") next = "Right";
-            else if (current == "Right") next = "Left";
-            else next = "Center";
-            
-            ult::setIniFileValue(configIniPath, "micro", "text_align", next);
-            return next;
-        }
-        return "";
-    }
-    
-    std::string cycleLayerPosRight() {
-        std::string section;
-        if (isFullMode) section = "full";
-        else if (isGameResolutionsMode) section = "game_resolutions";
-        else if (isFPSCounterMode) section = "fps-counter";
-        else if (isFPSGraphMode) section = "fps-graph";
-        
-        const std::string current = getCurrentLayerPosRight();
-        std::string next;
-        
-        if (isFullMode) {
-            // Full mode: only Left and Right
-            if (current == "Left") next = "Right";
-            else next = "Left";
-        } else {
-            // Other modes: Left -> Center -> Right -> Left
-            if (current == "Left") next = "Center";
-            else if (current == "Center") next = "Right";
-            else next = "Left";
-        }
-        
-        const std::string value = (next == "Right") ? "right" : (next == "Center" ? "center" : "left");
-        ult::setIniFileValue(configIniPath, section, "layer_width_align", value);
-        return next;
-    }
-
-    std::string cycleLayerPosBottom() {
-        std::string section;
-        if (isMicroMode) section = "micro";
-        else if (isGameResolutionsMode) section = "game_resolutions";
-        else if (isFPSCounterMode) section = "fps-counter";
-        else if (isFPSGraphMode) section = "fps-graph";
-        
-        const std::string current = getCurrentLayerPosBottom();
-        std::string next;
-        
-        if (isMicroMode) {
-            // Micro mode: only Top and Bottom
-            if (current == "Top") next = "Bottom";
-            else next = "Top";
-        } else {
-            // Other modes: Top -> Center -> Bottom -> Top
-            if (current == "Top") next = "Center";
-            else if (current == "Center") next = "Bottom";
-            else next = "Top";
-        }
-        
-        const std::string value = (next == "Bottom") ? "bottom" : (next == "Center" ? "center" : "top");
-        ult::setIniFileValue(configIniPath, section, "layer_height_align", value);
-        return next;
     }
 };
