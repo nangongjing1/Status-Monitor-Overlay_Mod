@@ -428,7 +428,7 @@ public:
 
         const std::string section = modeToSection(modeName);
         std::string currentColor = ult::parseValueFromIniSection(configIniPath, section, colorKey);
-        if (currentColor.empty()) currentColor = "#000B";
+        if (currentColor.empty()) currentColor = "#000A";
         const std::string currentAlpha = extractAlphaFromColor(currentColor);
 
         static const std::pair<std::string, char> alphaOptions[16] = {
@@ -445,7 +445,7 @@ public:
             alphaItem->setClickListener([this, alphaItem, option, section](uint64_t keys) {
                 if (keys & KEY_A) {
                     std::string color = ult::parseValueFromIniSection(configIniPath, section, colorKey);
-                    if (color.empty()) color = "#000B";
+                    if (color.empty()) color = "#000A";
                     ult::setIniFileValue(configIniPath, section, colorKey, setAlphaInColor(color, option.second));
                     selectItem(lastSelectedListItem, alphaItem, ult::CHECKMARK_SYMBOL);
                     return true;
@@ -1347,11 +1347,11 @@ public:
         list->addItem(new tsl::elm::CategoryHeader("颜色"));
 
         if (!flags.isFull) {
-            addColorWithAlpha(list, "背景颜色", "background_color",       "#000B", "背景透明度");
+            addColorWithAlpha(list, "背景颜色", "background_color",       "#000A", "背景透明度");
             if (flags.isMini || flags.isMicro || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes)
                 addColorWithAlpha(list, "焦点颜色",  "focus_background_color", "#000F", "焦点透明度");
         } else {
-            addColorWithAlpha(list, "背景颜色", "background_color",       "#000B", "背景透明度");
+            addColorWithAlpha(list, "背景颜色", "background_color",       "#000A", "背景透明度");
         }
 
         addColorItem(list, "文字颜色", "text_color", "#FFFF");
