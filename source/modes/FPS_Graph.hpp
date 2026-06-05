@@ -36,6 +36,9 @@ private:
     Thread touchPollThread;
     std::atomic<bool> touchPollRunning{false};
 
+    Thread graphSampleThread;
+    std::atomic<bool> graphSampleRunning{false};
+
     // Store actual rendered dimensions (including border)
     size_t actualTotalWidth = 0;
     size_t actualTotalHeight = 0;
@@ -78,6 +81,7 @@ public:
         }
         deactivateOriginalFooter = true;
         mutexInit(&mutex_Misc);
+        mutexInit(&readings_mutex);
         StartInfoThread();
         StartFPSCounterThread();
 
@@ -131,7 +135,7 @@ public:
                             // Fallback calculation
                             const s16 refresh_rate_offset = (overlay->refreshRate < 100) ? 21 : 28;
                             const s16 info_width = overlay->settings.showInfo ? (6 + overlay->rectangle_width/2 - 4) : 0;
-                            const s16 content_width = overlay->rectangle_width + refresh_rate_offset + info_width;
+                            const s16 content_width = overlay->rectangle_width + refresh_rate_offset + info_width + 1;
                             const s16 content_height = overlay->rectangle_height + 12;
                             totalWidth = content_width + (2 * border);
                             totalHeight = content_height + (2 * border);
@@ -225,6 +229,45 @@ public:
             }
         }, this, NULL, 0x1000, 0x2B, -2);
         threadStart(&touchPollThread);
+
+        // Graph sampler thread: fixed 10 Hz (100 ms), capped at 180 samples.
+        // Mirrors the Mini embedded graph sampler so the time window is always
+        // 18 seconds regardless of the overlay refresh rate setting.
+        graphSampleRunning.store(true, std::memory_order_release);
+        threadCreate(&graphSampleThread, [](void* arg) -> void {
+            com_FPSGraph* ov = static_cast<com_FPSGraph*>(arg);
+            while (ov->graphSampleRunning.load(std::memory_order_acquire)) {
+                svcSleepThread(100'000'000ULL); // 100 ms = 10 Hz
+                if (tsl::hlp::waitWhileSleeping()) continue;
+                if (!ov->graphSampleRunning.load(std::memory_order_acquire)) break;
+                const float avg = useOldFPSavg ? FPSavg_old : FPSavg;
+                if (avg >= 254.0f) {
+                    mutexLock(&ov->readings_mutex);
+                    if (!ov->readings.empty()) {
+                        ov->readings.clear();
+                        ov->readings.shrink_to_fit();
+                    }
+                    mutexUnlock(&ov->readings_mutex);
+                    continue;
+                }
+                stats temp = {0, false};
+                temp.value = static_cast<s16>(std::lround(avg));
+                const float whole = std::round(avg);
+                if (avg >= whole - 0.05f && avg <= whole + 0.04f)
+                    temp.zero_rounded = true;
+                mutexLock(&ov->readings_mutex);
+                // +1: the draw loop's leftmost x = x_end - nReadings + 1. With
+                // nReadings = rectangle_width + 1 that x = rectangle_x + rectangle_width
+                // - rectangle_width = rectangle_x, placing the leftmost line pixel at
+                // final_base_x + rectangle_x + offset + 1 = final_base_x + rectangle_x + 2,
+                // flush against the border's inner-left face at final_base_x + rectangle_x + 2.
+                if ((s16)ov->readings.size() >= ov->rectangle_width + 1)
+                    ov->readings.erase(ov->readings.begin());
+                ov->readings.push_back(temp);
+                mutexUnlock(&ov->readings_mutex);
+            }
+        }, this, NULL, 0x1000, 0x2B, -2);
+        threadStart(&graphSampleThread);
     }
 
     ~com_FPSGraph() {
@@ -232,6 +275,11 @@ public:
         touchPollRunning.store(false, std::memory_order_release);
         threadWaitForExit(&touchPollThread);
         threadClose(&touchPollThread);
+
+        // Stop graph sampler thread
+        graphSampleRunning.store(false, std::memory_order_release);
+        threadWaitForExit(&graphSampleThread);
+        threadClose(&graphSampleThread);
 
         EndInfoThread();
         EndFPSCounterThread();
@@ -265,10 +313,10 @@ public:
     char legend_min[2] = "0";
     s32 range = std::abs(rectangle_range_max - rectangle_range_min) + 1;
     s16 x_end = rectangle_x + rectangle_width;
-    s16 y_old = rectangle_y+rectangle_height;
     s16 y_30FPS = rectangle_y+(rectangle_height / 2);
     s16 y_60FPS = rectangle_y;
-    bool isAbove = false;
+
+    Mutex readings_mutex;  // guards 'readings' (per-frame push in update() and the draw loop)
 
     virtual tsl::elm::Element* createUI() override {
 
@@ -277,7 +325,7 @@ public:
             // Calculate content dimensions (what goes inside the border)
             const s16 refresh_rate_offset = (refreshRate < 100) ? 21 : 28;
             const s16 info_width = settings.showInfo ? (6 + rectangle_width/2 - 4) : 6;
-            const s16 content_width = rectangle_width + refresh_rate_offset + info_width;
+            const s16 content_width = rectangle_width + refresh_rate_offset + info_width + 1;
             const s16 content_height = rectangle_height + 12;
             
             // Total dimensions including border
@@ -381,53 +429,98 @@ public:
             const auto width = renderer->getTextDimensions(FPSavg_c, false, size).first;
 
             const s16 pos_y = size + final_base_y + rectangle_y + ((rectangle_height - size) / 2);
-            const s16 pos_x = final_base_x + rectangle_x + ((rectangle_width - width) / 2);
+            const s16 pos_x = final_base_x + rectangle_x + (((rectangle_width + 1) - width) / 2);
 
-            if (FPSavg != 254.0)
-                renderer->drawString(FPSavg_c, false, pos_x, pos_y-5, size, settings.fpsColor);
-            renderer->drawEmptyRect(final_base_x+(rectangle_x - 1)+2, final_base_y+(rectangle_y - 1), rectangle_width + 2, rectangle_height + 4, aWithOpacity(settings.borderColor));
-            renderer->drawDashedLine(final_base_x+rectangle_x+2, final_base_y+y_30FPS, final_base_x+rectangle_x+rectangle_width, final_base_y+y_30FPS, 6, aWithOpacity(settings.dashedLineColor));
+            // Plot background: drawn immediately after the border, so the dashed
+            // line, legend, FPS counter, and data line all render on top of it.
+            // Skipped entirely when alpha is 0 to avoid an unnecessary draw call.
+            // plotBackgroundColor is uint16_t (RGBA4444); alpha is the top nibble.
+            if ((settings.plotBackgroundColor >> 12) & 0xF)
+                renderer->drawRect(
+                    final_base_x + rectangle_x + 2,
+                    final_base_y + rectangle_y,
+                    rectangle_width + 1, // +1px right: data sits on the rightmost column; widen so it no longer touches the border
+                    rectangle_height + 2,
+                    aWithOpacity(settings.plotBackgroundColor));
+
+            renderer->drawDashedLine(final_base_x+rectangle_x+2 +3, final_base_y+y_30FPS, final_base_x+rectangle_x+rectangle_width+2 -3, final_base_y+y_30FPS, 6, aWithOpacity(settings.dashedLineColor));
             renderer->drawString(&legend_max[0], false, final_base_x+(rectangle_x-((refreshRate < 100) ? 15 : 22)), final_base_y+(rectangle_y+7), 10, (settings.maxFPSTextColor));
-            renderer->drawString(&legend_min[0], false, final_base_x+(rectangle_x-10), final_base_y+(rectangle_y+rectangle_height+3), 10, settings.minFPSTextColor);
-
-            size_t last_element = readings.size() - 1;
-
-            s16 offset = 0;
-            if (refreshRate >= 100) offset = 7;
-
-            static s32 y_on_range;
-            static tsl::Color color = {0};
-            for (s16 x = x_end; x > static_cast<s16>(x_end-readings.size()); x--) {
-                y_on_range = readings[last_element].value + std::abs(rectangle_range_min) + 1;
-                if (y_on_range < 0) {
-                    y_on_range = 0;
-                }
-                else if (y_on_range > range) {
-                    isAbove = true;
-                    y_on_range = range; 
-                }
-                
-                const s16 y = rectangle_y + static_cast<s16>(std::lround((float)rectangle_height * ((float)(range - y_on_range) / (float)range)));
-                color = (settings.mainLineColor);
-                if (y == y_old && !isAbove && readings[last_element].zero_rounded) {
-                    if ((y == y_30FPS || y == y_60FPS))
-                        color = (settings.perfectLineColor);
-                    else
-                        color = (settings.dashedLineColor);
-                }
-
-                if (x == x_end) {
-                    y_old = y;
-                }
-
-                renderer->drawLine(final_base_x+x+offset, final_base_y+y, final_base_x+x+offset, final_base_y+y_old, color);
-                isAbove = false;
-                y_old = y;
-                last_element--;
+            // Right-align the min "0" with the trailing '0' of the max label:
+            // place its cursor at the same x as the final '0' in legend_max so both
+            // glyphs occupy the exact same pixel columns at any refresh rate.
+            // zeroAdvanceFps uses getTextDimensions — the same truncating static_cast<s32>
+            // path as maxAdvanceFps — so both cursor offsets round identically.
+            // (lround(xAdvance * currFontSize) can differ by 1 px, causing misalignment.)
+            {
+                const int zeroAdvanceFps  = renderer->getTextDimensions("0", false, 10).first;
+                const int maxAdvanceFps   = renderer->getTextDimensions(&legend_max[0], false, 10).first;
+                renderer->drawString(&legend_min[0], false,
+                    final_base_x + (rectangle_x - ((refreshRate < 100) ? 15 : 22)) + maxAdvanceFps - zeroAdvanceFps,
+                    final_base_y+(rectangle_y+rectangle_height+3), 10, settings.minFPSTextColor);
             }
 
+            // FPS counter drawn above the dashed line but below the data line.
+            if (FPSavg != 254.0)
+                renderer->drawString(FPSavg_c, false, pos_x, pos_y-5, size, settings.fpsColor);
+
+            mutexLock(&readings_mutex);
+            const size_t nReadings = readings.size();
+            // y_old_local is a stack variable reset each draw call -- no cross-frame
+            // contamination from stale state when a new sample is pushed mid-frame.
+            s16 y_old_local = rectangle_y + rectangle_height;
+            bool isAboveLocal = false;
+
+            // offset = 1: the main line draws at final_base_x + x + offset + 1.
+            // With x = x_end = rectangle_x + rectangle_width, the rightmost line pixel
+            // lands at final_base_x + rectangle_x + rectangle_width + 2, directly left
+            // of the border's right outer column at +3. Shadow falls on the border column
+            // and is overwritten when the border is drawn after the loop.
+            // x_end already incorporates rectangle_x (15 or 22), so no separate per-rate
+            // shift is needed — offset is the same constant at all refresh rates.
+            const s16 offset = 1;
+
+            for (s16 x = x_end; x > static_cast<s16>(x_end - (s16)nReadings); x--) {
+                const size_t idx = nReadings - 1 - (size_t)(x_end - x);
+                s32 y_on_range = readings[idx].value + std::abs(rectangle_range_min) + 1;
+                if (y_on_range < 0) {
+                    y_on_range = 0;
+                } else if (y_on_range > range) {
+                    isAboveLocal = true;
+                    y_on_range = range;
+                }
+
+                const s16 y = rectangle_y + static_cast<s16>(std::lround(
+                    (float)rectangle_height * ((float)(range - y_on_range) / (float)range)));
+                tsl::Color color = settings.mainLineColor;
+                if (y == y_old_local && !isAboveLocal && readings[idx].zero_rounded) {
+                    if (y == y_30FPS || y == y_60FPS)
+                        color = settings.perfectLineColor;
+                    else
+                        color = settings.roundedLineColor;
+                }
+
+                // Snap y_old_local on the rightmost column so the first segment
+                // is zero-length (a point), not a vertical line to the plot floor.
+                if (x == x_end)
+                    y_old_local = y;
+
+                // Shadow: same segment offset +1x, +1y in translucent black.
+                // Drawn first so the main line paints on top.
+                renderer->drawLine(final_base_x+x+offset+2, final_base_y+y+1,
+                                   final_base_x+x+offset+2, final_base_y+y_old_local+1,
+                                   tsl::Color(0, 0, 0, 5));
+                renderer->drawLine(final_base_x+x+offset+1, final_base_y+y,
+                                   final_base_x+x+offset+1, final_base_y+y_old_local, color);
+                isAboveLocal = false;
+                y_old_local = y;
+            }
+
+            renderer->drawEmptyRect(final_base_x+(rectangle_x - 1)+2, final_base_y+(rectangle_y - 1), rectangle_width + 3, rectangle_height + 4, aWithOpacity(settings.borderColor));
+
+            mutexUnlock(&readings_mutex);
+
             if (settings.showInfo) {
-                const s16 info_x = final_base_x+rectangle_width+rectangle_x + 6 +8;
+                const s16 info_x = final_base_x+rectangle_width+rectangle_x + 6 +8 +1; // +1: follow the 1px-wider border
                 const s16 info_y = final_base_y + 3;
                 const s16 fontSize = 11;
                 
@@ -482,102 +575,75 @@ public:
     }
 
     virtual void update() override {
-        cnt++;
-        if (cnt >= TeslaFPS)
-            cnt = 0;
-
-        ///FPS
-        stats temp = {0, false};
-        static uint64_t lastFrame = 0;
-
         const u64 _nowTick = armGetSystemTick();
-        const bool shouldUpdateData = (_nowTick - lastDataUpdateTick) >= (systemtickfrequency / settings.refreshRate);
-        if (shouldUpdateData) {
+
+        // --- Info / value text: refresh at the SAMPLE rate (<= refresh rate) --
+        // settings.sampleRate governs how often the numeric readouts (FPS number,
+        // temps, CPU/GPU/RAM) are re-formatted. Decoupling this from the per-frame
+        // plot keeps fast-changing numbers from flickering and trims redundant work.
+        if ((_nowTick - lastDataUpdateTick) >= (systemtickfrequency / settings.sampleRate)) {
             lastDataUpdateTick = _nowTick;
-        
-        if (settings.useIntegerFPS)
-            snprintf(FPSavg_c, sizeof FPSavg_c, "%d", (int)round(FPSavg));
-        else
-            snprintf(FPSavg_c, sizeof FPSavg_c, "%2.1f",  FPSavg);
-        const uint8_t SaltySharedDisplayRefreshRate = *(uint8_t*)((uintptr_t)shmemGetAddr(&_sharedmemory) + 1);
-        if (SaltySharedDisplayRefreshRate) 
-            refreshRate = SaltySharedDisplayRefreshRate;
-        else refreshRate = 60;
-        if (FPSavg < 254) {
-            if (settings.useIntegerFPS)
-                snprintf(FPSavg_c, sizeof(FPSavg_c), "%d", (int)round(useOldFPSavg ? FPSavg_old : FPSavg));
-            else
-                snprintf(FPSavg_c, sizeof(FPSavg_c), "%.1f", useOldFPSavg ? FPSavg_old : FPSavg);
 
-            if (lastFrame == lastFrameNumber) return;
-            else lastFrame = lastFrameNumber;
-            if ((s16)(readings.size()) >= rectangle_width) {
-                readings.erase(readings.begin());
+            // Read display refresh rate from shared memory
+            const uint8_t SaltySharedDisplayRefreshRate = *(uint8_t*)((uintptr_t)shmemGetAddr(&_sharedmemory) + 1);
+            if (SaltySharedDisplayRefreshRate)
+                refreshRate = SaltySharedDisplayRefreshRate;
+            else refreshRate = 60;
+
+            // Format the FPS counter string
+            if (FPSavg < 254) {
+                if (settings.useIntegerFPS)
+                    snprintf(FPSavg_c, sizeof(FPSavg_c), "%d", (int)round(useOldFPSavg ? FPSavg_old : FPSavg));
+                else
+                    snprintf(FPSavg_c, sizeof(FPSavg_c), "%.1f", useOldFPSavg ? FPSavg_old : FPSavg);
+            } else {
+                FPSavg_c[0] = 0;
             }
-            const float whole = std::round(useOldFPSavg ? FPSavg_old : FPSavg);
-            temp.value = static_cast<s16>(std::lround(useOldFPSavg ? FPSavg_old : FPSavg));
-            if ((useOldFPSavg ? FPSavg_old : FPSavg) < whole+0.04 && (useOldFPSavg ? FPSavg_old : FPSavg) > whole-0.05) {
-                temp.zero_rounded = true;
-            }
-            readings.push_back(temp);
+
+            mutexLock(&mutex_Misc);
+
+            // Format temperature strings separately for proper alignment
+            snprintf(SOC_TEMP_c, sizeof SOC_TEMP_c, "%2.1f\u2103", SOC_temperatureF);
+            snprintf(PCB_TEMP_c, sizeof PCB_TEMP_c, "%2.1f\u2103", PCB_temperatureF);
+            snprintf(SKIN_TEMP_c, sizeof SKIN_TEMP_c, "%2d.%d\u2103",
+                     skin_temperaturemiliC / 1000, (skin_temperaturemiliC / 100) % 10);
+
+            // Atomically snapshot each idle tick once
+            const uint64_t idle0 = idletick0.load(std::memory_order_acquire);
+            const uint64_t idle1 = idletick1.load(std::memory_order_acquire);
+            const uint64_t idle2 = idletick2.load(std::memory_order_acquire);
+            const uint64_t idle3 = idletick3.load(std::memory_order_acquire);
+
+            // Clamp values to systemtickfrequency_impl (avoid div-by-zero / runaway)
+            const uint64_t safe0 = std::min(idle0, systemtickfrequency_impl);
+            const uint64_t safe1 = std::min(idle1, systemtickfrequency_impl);
+            const uint64_t safe2 = std::min(idle2, systemtickfrequency_impl);
+            const uint64_t safe3 = std::min(idle3, systemtickfrequency_impl);
+
+            // Compute per-core CPU usage
+            const double cpu_usage0 = (1.0 - (static_cast<double>(safe0) / systemtickfrequency_impl)) * 100.0;
+            const double cpu_usage1 = (1.0 - (static_cast<double>(safe1) / systemtickfrequency_impl)) * 100.0;
+            const double cpu_usage2 = (1.0 - (static_cast<double>(safe2) / systemtickfrequency_impl)) * 100.0;
+            const double cpu_usage3 = (1.0 - (static_cast<double>(safe3) / systemtickfrequency_impl)) * 100.0;
+
+            // Compute max core load (the highest usage), clamped to [0, 100]
+            const double cpu_usageM = std::max(0.0, std::min(100.0,
+                std::max({cpu_usage0, cpu_usage1, cpu_usage2, cpu_usage3})));
+
+            // Clamp GPU (tenths, 0-1000) and RAM (permille, 0-1000) before display
+            const uint32_t gpu_clamped = std::min(GPU_Load_u, (uint32_t)1000);
+            const uint32_t ram_clamped = std::min(ramLoad[SysClkRamLoad_All], (uint32_t)1000);
+
+            // Format output strings
+            snprintf(CPU_Load_c, sizeof(CPU_Load_c), "%.1f%%", cpu_usageM);
+            snprintf(GPU_Load_c, sizeof(GPU_Load_c), "%u.%u%%", gpu_clamped / 10, gpu_clamped % 10);
+            snprintf(RAM_Load_c, sizeof(RAM_Load_c), "%u.%u%%",
+                     ram_clamped / 10,
+                     ram_clamped % 10);
+
+            mutexUnlock(&mutex_Misc);
         }
-        else {
-            if (readings.size()) {
-                readings.clear();
-                readings.shrink_to_fit();
-                lastFrame = 0;
-            }
-            FPSavg_c[0] = 0;
-        }
 
-        } // end shouldUpdateData
-
-        if (cnt)
-            return;
-
-        mutexLock(&mutex_Misc);
-        
-        // Format temperature strings separately for proper alignment
-        snprintf(SOC_TEMP_c, sizeof SOC_TEMP_c, "%2.1f\u2103", SOC_temperatureF);
-        snprintf(PCB_TEMP_c, sizeof PCB_TEMP_c, "%2.1f\u2103", PCB_temperatureF);
-        snprintf(SKIN_TEMP_c, sizeof SKIN_TEMP_c, "%2d.%d\u2103", 
-                 skin_temperaturemiliC / 1000, (skin_temperaturemiliC / 100) % 10);
-        
-        // Atomically snapshot each idle tick once
-        const uint64_t idle0 = idletick0.load(std::memory_order_acquire);
-        const uint64_t idle1 = idletick1.load(std::memory_order_acquire);
-        const uint64_t idle2 = idletick2.load(std::memory_order_acquire);
-        const uint64_t idle3 = idletick3.load(std::memory_order_acquire);
-        
-        // Clamp values to systemtickfrequency_impl (avoid div-by-zero / runaway)
-        const uint64_t safe0 = std::min(idle0, systemtickfrequency_impl);
-        const uint64_t safe1 = std::min(idle1, systemtickfrequency_impl);
-        const uint64_t safe2 = std::min(idle2, systemtickfrequency_impl);
-        const uint64_t safe3 = std::min(idle3, systemtickfrequency_impl);
-        
-        // Compute per-core CPU usage
-        const double cpu_usage0 = (1.0 - (static_cast<double>(safe0) / systemtickfrequency_impl)) * 100.0;
-        const double cpu_usage1 = (1.0 - (static_cast<double>(safe1) / systemtickfrequency_impl)) * 100.0;
-        const double cpu_usage2 = (1.0 - (static_cast<double>(safe2) / systemtickfrequency_impl)) * 100.0;
-        const double cpu_usage3 = (1.0 - (static_cast<double>(safe3) / systemtickfrequency_impl)) * 100.0;
-        
-        // Compute max core load (the highest usage), clamped to [0, 100]
-        const double cpu_usageM = std::max(0.0, std::min(100.0,
-            std::max({cpu_usage0, cpu_usage1, cpu_usage2, cpu_usage3})));
-
-        // Clamp GPU (tenths, 0–1000) and RAM (permille, 0–1000) before display
-        const uint32_t gpu_clamped = std::min(GPU_Load_u, (uint32_t)1000);
-        const uint32_t ram_clamped = std::min(ramLoad[SysClkRamLoad_All], (uint32_t)1000);
-
-        // Format output strings
-        snprintf(CPU_Load_c, sizeof(CPU_Load_c), "%.1f%%", cpu_usageM);
-        snprintf(GPU_Load_c, sizeof(GPU_Load_c), "%u.%u%%", gpu_clamped / 10, gpu_clamped % 10);
-        snprintf(RAM_Load_c, sizeof(RAM_Load_c), "%u.%u%%",
-                 ram_clamped / 10,
-                 ram_clamped % 10);
-        
-        mutexUnlock(&mutex_Misc);
-    
         if (!skipOnce) {
             if (runOnce) {
                 if (!(tsl::notification && tsl::notification->isActive())) {
@@ -627,7 +693,7 @@ public:
             // Fallback calculation if not yet rendered
             const s16 refresh_rate_offset = (refreshRate < 100) ? 21 : 28;
             const s16 info_width = settings.showInfo ? (6 + rectangle_width/2 - 4) : 0;
-            const s16 content_width = rectangle_width + refresh_rate_offset + info_width;
+            const s16 content_width = rectangle_width + refresh_rate_offset + info_width + 1;
             const s16 content_height = rectangle_height + 12;
             totalWidth = content_width + (2 * border);
             totalHeight = content_height + (2 * border);

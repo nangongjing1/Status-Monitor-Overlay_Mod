@@ -1011,8 +1011,15 @@ static void Update() {
 
 
 int compare (const void* elem1, const void* elem2) {
-    if ((((resolutionCalls*)(elem1))->calls) > (((resolutionCalls*)(elem2))->calls)) return -1;
-    else return 1;
+    const uint16_t c1 = ((const resolutionCalls*)elem1)->calls;
+    const uint16_t c2 = ((const resolutionCalls*)elem2)->calls;
+    // Zero-width entries are empty padding slots — sort them to the end.
+    const bool empty1 = (((const resolutionCalls*)elem1)->width == 0);
+    const bool empty2 = (((const resolutionCalls*)elem2)->width == 0);
+    if (empty1 != empty2) return empty1 ? 1 : -1;  // real entries before empty slots
+    if (c1 > c2) return -1;
+    if (c1 < c2) return  1;
+    return 0;
 }
 
 void LoadSharedMemoryAndRefreshRate() {
@@ -1125,7 +1132,7 @@ void CheckIfGameRunning(void*) {
             }
         }
         mutexUnlock(&mutex_Misc);
-    } while (!leventWait(&threadexit, 1'000'000'000));
+    } while (!leventWait(&threadexit, 1'000'000'000ULL));
 }
 
 // Utils.hpp or your relevant header
@@ -1358,7 +1365,10 @@ static constexpr PowerDomainId domains[] = {
 
 // Stuff that doesn't need multithreading
 void Misc(void*) {
-    const uint64_t timeout_ns = TeslaFPS < 10 ? (1'000'000'000 / TeslaFPS) : 100'000'000;
+    // Use the same interval as CheckCore/FPSCounter so temps/GPU/RAM data
+    // updates at the overlay refresh rate rather than the old hardcapped 10 Hz.
+    // At very low frame rates (< 10 fps) the original safety floor still applies.
+    const uint64_t timeout_ns = 1'000'000'000ULL / TeslaFPS;
     const bool isUsingEOSorHOC = g_isUsingEOSorHOC;  // cached at init — no IPC cost
     
     // Initialize voltage reading if needed
@@ -1956,7 +1966,7 @@ void Misc3(void*) {
         
         mutexUnlock(&mutex_Misc);
         
-    } while (!leventWait(&threadexit, 1'000'000'000)); // 1 second timeout
+    } while (!leventWait(&threadexit, 1'000'000'000ULL / TeslaFPS)); // rate-follow TeslaFPS like Misc/CheckCore
     
     // Cleanup voltage reading if initialized
     if (canReadVoltages) {
@@ -2105,8 +2115,14 @@ void CloseThreads() {
 
 //Separate functions dedicated to "FPS Counter" mode
 void FPSCounter(void*) {
-    const uint64_t timeout_ns = 1'000'000'000 / TeslaFPS;
+    const uint64_t timeout_ns = 1'000'000'000ULL / TeslaFPS;
     do {
+        // Halt during sleep — NxFps shared memory is owned by the suspended
+        // game process; reads during sleep produce stale/garbage tick deltas.
+        if (tsl::hlp::waitWhileSleeping(timeout_ns)) {
+            if (!leventWait(&threadexit, 0)) continue; // still running
+            return; // threadexit signalled while sleeping
+        }
         if (GameRunning) {
             if (SharedMemoryUsed && NxFps) {
                 FPS = (NxFps -> FPS);
@@ -2489,6 +2505,7 @@ struct FullSettings {
 
 struct MiniSettings {
     uint8_t refreshRate;
+    uint8_t sampleRate;  // how often sensor values are re-polled; always <= refreshRate
     bool realFrequencies;
     bool realVolts;
     bool showLabels;
@@ -2518,6 +2535,7 @@ struct MiniSettings {
     bool showDTC;
     bool useDTCSymbol;
     bool useIntegerFPS;
+    bool showFpsGraph;         // true = replace FPS row with embedded FPS graph
     std::string dtcFormat;   // derived at load time: format1 + DIVIDER + format2 (or just format1 when format2 is "None")
     std::string dtcFormat1;  // top half (always present)
     std::string dtcFormat2;  // bottom half (== ult::OPTION_SYMBOL means "None" — no bottom half, no divider)
@@ -2525,7 +2543,16 @@ struct MiniSettings {
     size_t dockedFontSize;
     size_t docked1080pFontSize;  // font size used when use1080pDocked is true and console is docked
     bool use1080pDocked;         // when docked: use 1080p pixel-perfect layer + docked1080pFontSize
-    size_t spacing;
+    // Mini space-unit paddings. Stored in TENTHS OF A SPACE (the pixel width of a
+    // single ' ' glyph at the current font size), so the overlay keeps a consistent
+    // appearance across font sizes / resolutions without a separate displayScale factor.
+    size_t spacing;              // vertical gap between rows; tenths of a space (range 2..30 -> 0.2..3.0 sp)
+    uint8_t horizontalPadding;   // trailing (right-side) interior gap between text and box edge; tenths of a space
+    uint8_t verticalPadding;     // top+bottom interior gap between text and box edges; tenths of a space
+    uint8_t cornerRadiusSp;      // background box corner radius; tenths of a space
+    uint8_t stackedSpacing;      // gap between the two rows of a stacked/split metric;
+                                 // tenths of a space; default 7 (0.7 sp). Replaces the old
+                                 // fixed spacing/2 used for split-row compression.
     uint16_t backgroundColor;
     uint16_t focusBackgroundColor;
     uint16_t separatorColor;
@@ -2606,9 +2633,19 @@ struct MicroSettings {
     bool showStackedTemps;   // true = temp groups on separate rows (stacked); false = one line with divider
     bool setPosBottom;
     bool disableScreenshots;
-    uint8_t horizontalPadding;  // 0-10 px, left/right gap from screen edge to text; default 8
-    uint8_t verticalPadding;    // 0-8 px, gap above/below text within bar; default 2
-    uint8_t labelPadding;       // 2-8 px, gap between element label and its value; 0 = auto (font-size-based)
+    // Micro padding values are stored in TENTHS OF A SPACE (the pixel width of a
+    // single ' ' glyph at the current font size). Using the space width as the unit
+    // keeps the bar's appearance consistent across font sizes (e.g. handheld vs
+    // 1080p docked) where a fixed pixel padding would look wrong at one scale.
+    // Horizontal/vertical/label: range 2..30 -> 0.2..3.0 sp, in steps of 1 (0.1 sp).
+    // Element: range 10..100 -> 1..10 sp, in whole-space steps of 10 (1 sp).
+    uint8_t horizontalPadding;  // left/right gap from screen edge to text; default 14 (1.4 sp)
+    uint8_t verticalPadding;    // gap above/below text within bar; default 6 (0.6 sp)
+    uint8_t labelPadding;       // gap between an element label and its value; default 14 (1.4 sp)
+    uint8_t elementPadding;     // min gap between one element (label+value) and the next
+                                // when aligned left or right; default 50 (5 sp)
+    uint8_t stackedSpacing;     // extra vertical gap between the two rows of a stacked/split
+                                // metric (beyond glyph height); tenths of a space; default 7 (0.7 sp)
 };
 
 struct FpsCounterSettings {
@@ -2631,6 +2668,7 @@ struct FpsCounterSettings {
 struct FpsGraphSettings {
     bool showInfo;
     uint8_t refreshRate;
+    uint8_t sampleRate;  // how often info/values are re-polled; always <= refreshRate
     uint16_t backgroundColor;
     uint16_t focusBackgroundColor;
     uint16_t fpsColor;
@@ -2643,6 +2681,7 @@ struct FpsGraphSettings {
     uint16_t minFPSTextColor;
     uint16_t textColor;
     uint16_t catColor;
+    uint16_t plotBackgroundColor;
     //int setPos;
     bool useDynamicColors;
     bool useIntegerFPS;
@@ -2687,9 +2726,9 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     settings->showStackedCPUTemp = true;
     settings->showStackedGPUTemp = true;
     settings->showStackedRAMTemp = true;
-    settings->voltageAtEndCPU = false;
+    settings->voltageAtEndCPU = true;
     settings->voltageAtEndGPU = true;
-    settings->voltageAtEndRAM = false;
+    settings->voltageAtEndRAM = true;
     settings->voltageAtEndTMP = true;
     settings->showVDDQ = true;
     settings->showVDD2 = true;
@@ -2697,20 +2736,25 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     settings->showDTC = true;
     settings->useDTCSymbol = true;
     settings->useIntegerFPS = false;
+    settings->showFpsGraph = true;
     settings->dtcFormat1 = "%a, %b %d";
     settings->dtcFormat2 = "%l:%M:%S %p";
     settings->dtcFormat  = settings->dtcFormat1 + ult::DIVIDER_SYMBOL + settings->dtcFormat2;
     settings->handheldFontSize = 15;
     settings->dockedFontSize = 15;
-    settings->docked1080pFontSize = 20;  // ~15 × 1.5 — visually matches 720p docked size
+    settings->docked1080pFontSize = 21;
     settings->use1080pDocked = true;
-    settings->spacing = 8;
+    settings->spacing = 15;            // 1.5 sp
+    settings->horizontalPadding = 30;  // 3.0 sp (trailing/right-side text padding)
+    settings->verticalPadding = 30;    // 3.0 sp (top/bottom interior padding)
+    settings->cornerRadiusSp = 40;     // 4.0 sp
+    settings->stackedSpacing = 4;      // 0.4 sp (gap between stacked/split rows)
     convertStrToRGBA4444("#000A", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
     convertStrToRGBA4444("#2DFF", &(settings->separatorColor));
     convertStrToRGBA4444("#2DFF", &(settings->catColor));
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
-    settings->show = "DTC+BAT+CPU+GPU+RAM+TMP+FPS+RES";
+    settings->show = "DTC+BAT+CPU+GPU+RAM+TMP+RES+FPS";
     settings->showLabels = true;
     settings->showRAMLoad = true;
     settings->showRAMLoadCPUGPU = false;
@@ -2722,8 +2766,8 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
     settings->invertBatteryDisplay = true;
     settings->showStackedBAT = false;
     settings->showStackedDTC = false;
-    settings->refreshRate = 3;
-    settings->disableScreenshots = false;
+    settings->refreshRate = 30;
+    settings->sampleRate = 3;  // default matches refreshRate
     //settings->setPos = 0;
     settings->frameOffsetX = 0;
     settings->frameOffsetY = 0;
@@ -2759,6 +2803,14 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         settings->refreshRate = std::clamp(atol(it->second.c_str()), 1L, 60L);
     }
     
+
+    // Process sample_rate: how often sensor values are re-polled; always <= refreshRate.
+    // Default is 3 (not refreshRate) — the ini default is sample_rate=3 regardless of
+    // what refresh_rate is set to.
+    it = section.find("sample_rate");
+    if (it != section.end()) {
+        settings->sampleRate = std::clamp(atol(it->second.c_str()), 1L, (long)settings->refreshRate);
+    }
     // Process boolean flags
     it = section.find("real_freqs");
     if (it != section.end()) {
@@ -2801,9 +2853,27 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         settings->use1080pDocked = (key != "FALSE");
     }
 
+    // Space-unit paddings (tenths of a space). spacing: 2..30 (0.2..3.0 sp).
+    // horizontal/vertical: 2..60 (0.2..6.0 sp). cornerRadius: 0..80 (0..8.0 sp).
     it = section.find("spacing");
     if (it != section.end()) {
-        settings->spacing = atol(it->second.c_str());
+        settings->spacing = (size_t)std::clamp(atoi(it->second.c_str()), 2, 30);
+    }
+    it = section.find("horizontal_padding");
+    if (it != section.end()) {
+        settings->horizontalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 2, 60);
+    }
+    it = section.find("vertical_padding");
+    if (it != section.end()) {
+        settings->verticalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 2, 60);
+    }
+    it = section.find("corner_radius");
+    if (it != section.end()) {
+        settings->cornerRadiusSp = (uint8_t)std::clamp(atoi(it->second.c_str()), 0, 80);
+    }
+    it = section.find("stacked_spacing");
+    if (it != section.end()) {
+        settings->stackedSpacing = (uint8_t)std::clamp(atoi(it->second.c_str()), 0, 30);
     }
     
     // Process colors
@@ -3003,6 +3073,13 @@ ALWAYS_INLINE void GetConfigSettings(MiniSettings* settings) {
         key = it->second;
         convertToUpper(key);
         settings->useIntegerFPS = (key != "FALSE");
+    }
+
+    it = section.find("use_fps_graph");
+    if (it != section.end()) {
+        key = it->second;
+        convertToUpper(key);
+        settings->showFpsGraph = (key == "TRUE");
     }
 
     // DTC format: prefer the new two-part keys (dtc_format_1, dtc_format_2). Fall back
@@ -3208,7 +3285,7 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
     settings->showStackedDTC = true;
     settings->handheldFontSize = 15;
     settings->dockedFontSize = 15;
-    settings->docked1080pFontSize = 20;  // ~15 × 1.5 — visually matches 720p docked size
+    settings->docked1080pFontSize = 21;
     settings->use1080pDocked = true;
     settings->alignTo = 1; // CENTER
     convertStrToRGBA4444("#000A", &(settings->backgroundColor));
@@ -3228,9 +3305,11 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
     settings->setPosBottom = false;
     settings->disableScreenshots = false;
     settings->refreshRate = 3;
-    settings->horizontalPadding = 8;
-    settings->verticalPadding   = 5;
-    settings->labelPadding      = 8;
+    settings->horizontalPadding = 14;  // 1.4 sp
+    settings->verticalPadding   = 8;   // 0.8 sp
+    settings->labelPadding      = 14;  // 1.4 sp
+    settings->elementPadding    = 50;  // 5 sp
+    settings->stackedSpacing    = 4;   // 0.4 sp (gap between stacked/split rows)
 
     // Open and read file efficiently
     FILE* configFile = fopen(configIniPath, "r");
@@ -3649,18 +3728,31 @@ ALWAYS_INLINE void GetConfigSettings(MicroSettings* settings) {
     if (!settings->showComponentTemps && !settings->showSocPcbSkinTemps)
         settings->showSocPcbSkinTemps = true;
 
-    // Horizontal/vertical padding for bar text margins
+    // Horizontal/vertical/label/element padding for bar text margins.
+    // Stored in tenths of a space. H/V/label: 2..30 (0.2..3.0 sp, step 1).
+    // Element: 10..100 (1..10 sp, whole-space steps) -- snapped so the applied
+    // value always matches the integer value shown in the configurator.
     it = section.find("horizontal_padding");
     if (it != section.end()) {
-        settings->horizontalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 0, 20);
+        settings->horizontalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 2, 30);
     }
     it = section.find("vertical_padding");
     if (it != section.end()) {
-        settings->verticalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 0, 20);
+        settings->verticalPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 2, 30);
     }
     it = section.find("label_padding");
     if (it != section.end()) {
-        settings->labelPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 4, 12);
+        settings->labelPadding = (uint8_t)std::clamp(atoi(it->second.c_str()), 2, 30);
+    }
+    it = section.find("element_padding");
+    if (it != section.end()) {
+        int ep = std::clamp(atoi(it->second.c_str()), 10, 100);
+        ep = std::clamp(((ep + 5) / 10) * 10, 10, 100);  // snap to nearest whole space
+        settings->elementPadding = (uint8_t)ep;
+    }
+    it = section.find("stacked_spacing");
+    if (it != section.end()) {
+        settings->stackedSpacing = (uint8_t)std::clamp(atoi(it->second.c_str()), 0, 30);
     }
 
 }
@@ -3673,7 +3765,7 @@ ALWAYS_INLINE void GetConfigSettings(FpsCounterSettings* settings) {
     settings->use1080pDocked = true;
     convertStrToRGBA4444("#000A", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
-    convertStrToRGBA4444("#8CFF", &(settings->textColor));
+    convertStrToRGBA4444("#2DFF", &(settings->textColor));
     //settings->setPos = 0;
     settings->refreshRate = 5;
     settings->useIntegerFPS = true;
@@ -3818,19 +3910,21 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
     //settings->setPos = 0;
     convertStrToRGBA4444("#000A", &(settings->backgroundColor));
     convertStrToRGBA4444("#000F", &(settings->focusBackgroundColor));
-    convertStrToRGBA4444("#888C", &(settings->fpsColor));
+    convertStrToRGBA4444("#2DFF", &(settings->fpsColor));
     convertStrToRGBA4444("#2DFF", &(settings->borderColor));
-    convertStrToRGBA4444("#8888", &(settings->dashedLineColor));
+    convertStrToRGBA4444("#0AAF", &(settings->dashedLineColor));
     convertStrToRGBA4444("#FFFF", &(settings->maxFPSTextColor));
     convertStrToRGBA4444("#FFFF", &(settings->minFPSTextColor));
-    convertStrToRGBA4444("#FFFF", &(settings->mainLineColor));
-    convertStrToRGBA4444("#F0FF", &(settings->roundedLineColor));
-    convertStrToRGBA4444("#0C0F", &(settings->perfectLineColor));
+    convertStrToRGBA4444("#0F0F", &(settings->mainLineColor));
+    convertStrToRGBA4444("#0C0F", &(settings->roundedLineColor));
+    convertStrToRGBA4444("#A0FF", &(settings->perfectLineColor));
 
     convertStrToRGBA4444("#FFFF", &(settings->textColor));
     convertStrToRGBA4444("#2DFF", &(settings->catColor));
+    convertStrToRGBA4444("#0007", &(settings->plotBackgroundColor));
 
-    settings->refreshRate = 5;
+    settings->refreshRate = 30;
+    settings->sampleRate = 3;  // default sample_rate for fps-graph
     settings->useDynamicColors = true;
     settings->useIntegerFPS = true;
     settings->disableScreenshots = false;
@@ -3895,6 +3989,16 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
         settings->showInfo = (key == "TRUE");
     }
 
+    it = section.find("refresh_rate");
+    if (it != section.end())
+        settings->refreshRate = (uint8_t)std::clamp(atol(it->second.c_str()), 1L, 60L);
+
+    // sample_rate: how often the info/value text is re-polled; always <= refreshRate.
+    // Default is 3 (set above in the defaults block); only override if the ini key is present.
+    it = section.find("sample_rate");
+    if (it != section.end())
+        settings->sampleRate = (uint8_t)std::clamp(atol(it->second.c_str()), 1L, (long)settings->refreshRate);
+
     it = section.find("use_dynamic_colors");
     if (it != section.end()) {
         key = it->second;
@@ -3951,7 +4055,8 @@ ALWAYS_INLINE void GetConfigSettings(FpsGraphSettings* settings) {
         {"rounded_line_color", &settings->roundedLineColor},
         {"perfect_line_color", &settings->perfectLineColor},
         {"text_color", &settings->textColor},
-        {"cat_color", &settings->catColor}
+        {"cat_color", &settings->catColor},
+        {"plot_background_color", &settings->plotBackgroundColor}
     };
     
     for (const auto& mapping : colorMappings) {

@@ -41,11 +41,31 @@ private:
     ApmPerformanceMode performanceMode = ApmPerformanceMode_Invalid;
     uint64_t systemtickfrequency_impl = systemtickfrequency;
     int frameOffsetX, frameOffsetY;
-    int topPadding, bottomPadding;
+    int topPadding = 5, bottomPadding = 5;
+    int horizPadPx = 0;            // trailing (right-side) interior text padding in px (from settings.horizontalPadding)
+    int stackSpacingPx = 4;        // gap between the two rows of a stacked/split metric, px
+                                   // (from settings.stackedSpacing). Replaces the old spacing/2.
+    bool   spaceUnitsApplied = false; // true once sp paddings converted to px for current font
+    size_t spacingSp = 0;             // original spacing in tenths-of-a-space (settings.spacing gets overwritten with px)
     int cachedBaselineOffset = 0;  // ascent pixels; used for currentY start
     int cachedDescentAbs     = 0;  // descent pixels below baseline; used for last-row glyph bottom
     uint32_t drawCachedHeight = 0; // authoritative height from draw path; read by handleInput for maxY clamp
     bool isDragging = false;
+
+    // ── Embedded FPS Graph (shown in the FPS row when settings.showFpsGraph is true) ──
+    // Graph color settings loaded from the [fps-graph] INI section.
+    FpsGraphSettings graphSettings;
+    // Ring-buffer of per-frame FPS samples. Mirrors the logic in com_FPSGraph.
+    struct GraphStats { s16 value; bool zero_rounded; };
+    std::vector<GraphStats> graphReadings;
+    uint8_t graphRefreshRate = 60;   // display refresh rate from SaltySD shared memory
+    s16 graphYOld = 0;               // previous Y sample position (for line-draw continuity)
+    s16 graphY30 = 0;                // Y position of the 30-fps dashed line
+    bool graphIsAbove = false;
+    char graphFpsAvg_c[8] = "";      // formatted FPS average string for graph overlay text
+    // graphRowHeightPx: total height in framebuffer pixels of the FPS_GRAPH row,
+    // computed once per layout recalc from graphRefreshRate and displayScale.
+    int graphRowHeightPx = 0;
 
     bool skipOnce = true;
     bool runOnce = true;
@@ -81,7 +101,43 @@ private:
 
     Thread touchPollThread;
     std::atomic<bool> touchPollRunning{false};
+
+    Thread graphSampleThread;
+    std::atomic<bool> graphSampleRunning{false};
     
+    // Width (in pixels) of a single space glyph at the current font size. This is the
+    // unit for Mini's space-based paddings (spacing / horizontal / vertical / corner),
+    // so they stay visually consistent across font sizes without a displayScale factor.
+    // Falls back to a font-proportional estimate if the measurement is degenerate.
+    inline float miniSpaceWidthPx(tsl::gfx::Renderer *renderer) const {
+        const float w = (float)renderer->getTextDimensions(" ", false, fontsize).first;
+        return (w > 0.5f) ? w : (float)fontsize * 0.25f;
+    }
+
+    // Convert a padding setting (tenths of a space) into pixels at the current font size.
+    inline int miniPaddingToPx(float spaceW, unsigned tenths) const {
+        return (int)lround(spaceW * (float)tenths / 10.0f);
+    }
+
+    // Convert all space-unit paddings (tenths of a space) into pixels for the current
+    // font. Called from the width-measurement block where the renderer/font is ready.
+    // Idempotent: the original spacing-in-sp is preserved in spacingSp so repeated
+    // calls (e.g. after a font-size change) always recompute from the sp source.
+    void miniApplySpaceUnits(tsl::gfx::Renderer *renderer) {
+        if (!spaceUnitsApplied) {
+            spacingSp = settings.spacing;   // capture sp value before overwriting with px
+            spaceUnitsApplied = true;
+        }
+        const float spaceW = miniSpaceWidthPx(renderer);
+        settings.spacing = (size_t)std::max(0, miniPaddingToPx(spaceW, (unsigned)spacingSp));
+        horizPadPx       = miniPaddingToPx(spaceW, settings.horizontalPadding);
+        const int vPad   = miniPaddingToPx(spaceW, settings.verticalPadding);
+        topPadding       = vPad;
+        bottomPadding    = vPad;
+        cornerRadius     = miniPaddingToPx(spaceW, settings.cornerRadiusSp);
+        stackSpacingPx   = miniPaddingToPx(spaceW, settings.stackedSpacing);
+    }
+
     void updateLayerPos() {
         if (ult::windowedLayerPixelPerfect) {
             // --- X: sliding-window (same for both full and limited 1080p) ---
@@ -167,6 +223,7 @@ public:
         strcpy(Battery_c, "-.-- W-.-% [--:--]"); // Default display
 
         GetConfigSettings(&settings);
+        GetConfigSettings(&graphSettings);
         // NOTE: apm is not yet initialized when the constructor runs (initServices() is called
         // after new MiniOverlay()). We defer the apm-based font selection to update().
         // For the initial font, use the docked/handheld state we already know from the
@@ -220,16 +277,12 @@ public:
         //alphabackground = 0x0;
         frameOffsetX = settings.frameOffsetX;
         frameOffsetY = settings.frameOffsetY;
-        // Scale all framebuffer-pixel measurements so 1080p mode looks identical
-        // to 720p mode (both render the same visual pixel density on screen).
-        // In 720p mode displayScale=1.0 so the multiplications are no-ops.
+        // framePadding stays a fixed pixel value (scaled for 1080p density). The
+        // space-unit paddings (spacing / horizontal / vertical / cornerRadius) are
+        // converted from tenths-of-a-space to pixels once the font is loaded, in the
+        // !Initialized width-measurement block below (miniApplySpaceUnits).
         framePadding     = (size_t)(settings.framePadding * displayScale + 0.5f);
-        topPadding       = (int)(5.0f * displayScale + 0.5f);
-        bottomPadding    = (int)(5.0f * displayScale + 0.5f);
-        cornerRadius     = (int)(16.0f * displayScale + 0.5f);
-        // Scale spacing so row gaps match 720p visual proportions in 1080p pixel-perfect mode.
-        // settings is a local copy so writing back here is safe and covers all 56 usages below.
-        settings.spacing = (int)(settings.spacing * displayScale + 0.5f);
+        spaceUnitsApplied = false;     // force (re)conversion of sp paddings on next layout
         cachedBaselineOffset = (int)fontsize;  // updated to true ascent once font is loaded
         cachedDescentAbs     = 0;              // updated to true descent once font is loaded
 
@@ -342,7 +395,6 @@ public:
         
             HidTouchScreenState state = {0};
             bool inputDetected;
-            size_t actualEntryCount;
         
             while (overlay->touchPollRunning.load(std::memory_order_acquire)) {
                 // Sleep gate: touch panel is off during sleep — no input is
@@ -365,18 +417,14 @@ public:
                         const uint32_t margin = (overlay->fontsize * 4);
                         const int overlayX = overlay->frameOffsetX;
                         const int overlayY = overlay->frameOffsetY;
-                        const int overlayWidth = margin + overlay->rectangleWidth + (overlay->fontsize / 3);
+                        const int overlayWidth = margin + overlay->rectangleWidth + overlay->horizPadPx;
                         
-                        // Calculate height from Variables string
-                        actualEntryCount = 1;
-                        for (size_t i = 0; overlay->Variables[i] != '\0'; i++) {
-                            if (overlay->Variables[i] == '\n') {
-                                actualEntryCount++;
-                            }
-                        }
-                        const int overlayHeight = ((overlay->fontsize + overlay->settings.spacing) * actualEntryCount) + 
-                                                 overlay->settings.spacing * actualEntryCount + 
-                                                 overlay->topPadding + overlay->bottomPadding;
+                        // Use drawCachedHeight (written by the draw path) for the hit-test.
+                        // The old line-count formula omitted descent pixels and split
+                        // compressions, so the hit-test rect was taller than the actual
+                        // rendered rect. When combined with a stale frameOffsetY this
+                        // caused touch drag activation to fail near screen edges.
+                        const int overlayHeight = (int)overlay->drawCachedHeight;
                         
                         // Add touch padding
                         const int touchPadding = 4;
@@ -385,8 +433,11 @@ public:
                         const int touchableWidth = overlayWidth + (touchPadding * 2);
                         const int touchableHeight = overlayHeight + (touchPadding * 2);
                         
-                        // Check if touch is within bounds — 500ms hold required
-                        if (touchX >= touchableX && touchX <= touchableX + touchableWidth &&
+                        // Check if touch is within bounds — 500ms hold required.
+                        // Guard on overlayHeight > 0: drawCachedHeight is 0 until the draw
+                        // path runs at least once; a zero-height rect would match any touch Y.
+                        if (overlayHeight > 0 &&
+                            touchX >= touchableX && touchX <= touchableX + touchableWidth &&
                             touchY >= touchableY && touchY <= touchableY + touchableHeight) {
                             if (overlay->buttonState.touchDragActive.load(std::memory_order_acquire)) {
                                 // Drag already confirmed — keep input signalled
@@ -465,12 +516,65 @@ public:
             }
         }, this, NULL, 0x1000, 0x2B, -2);
         threadStart(&touchPollThread);
+
+        // Graph sampling thread - runs at a fixed ~10 Hz so the FPS graph
+        // fills at a consistent real-time rate regardless of the overlay's
+        // display refresh rate setting. update() is called at TeslaFPS Hz,
+        // so at low refresh rates (e.g. 2 Hz) sampling inside update() would
+        // make the graph scroll 5x slower than at 10 Hz. Running the sampler
+        // in a dedicated thread decouples it entirely from the UI frame rate.
+        if (settings.showFpsGraph) {
+            graphSampleRunning.store(true, std::memory_order_release);
+            threadCreate(&graphSampleThread, [](void* arg) -> void {
+                MiniOverlay* ov = static_cast<MiniOverlay*>(arg);
+                // Sample interval: 30 seconds / maxWidth pixels = time per pixel.
+                // Recompute each iteration so it adapts if displayScale ever changes.
+                while (ov->graphSampleRunning.load(std::memory_order_acquire)) {
+
+                    svcSleepThread(100'000'000ULL); // 100ms = 10 Hz
+                    // Sleep gate
+                    if (tsl::hlp::waitWhileSleeping()) continue;
+                    
+                    if (!ov->graphSampleRunning.load(std::memory_order_acquire)) break;
+                    if (!GameRunning) {
+                        if (!ov->graphReadings.empty()) {
+                            ov->graphReadings.clear();
+                            ov->graphReadings.shrink_to_fit();
+                        }
+                        ov->graphFpsAvg_c[0] = '\0';
+                        continue;
+                    }
+                    const float avg = FPSavg;
+                    if (avg >= 254.0f) continue;
+                    // +1: the draw loop's leftmost xi = x_end - nReadings + 1. With
+                    // nReadings = rect_w + 1 that xi = rect_x_s + rect_w - rect_w = rect_x_s,
+                    // placing the leftmost line pixel at gx + rect_x_s + lineOffset + 1 =
+                    // gx + rect_x_s + 2, flush against the border's inner-left face.
+                    const int maxWidth = (int)lround(180 * ov->displayScale) + 1;
+                    if ((int)ov->graphReadings.size() >= maxWidth)
+                        ov->graphReadings.erase(ov->graphReadings.begin());
+                    GraphStats gs;
+                    gs.value = (s16)std::lround(avg);
+                    const float whole = std::round(avg);
+                    gs.zero_rounded = (avg >= whole - 0.05f && avg <= whole + 0.04f);
+                    ov->graphReadings.push_back(gs);
+                }
+            }, this, NULL, 0x1000, 0x2B, -2);
+            threadStart(&graphSampleThread);
+        }
     }
+
     ~MiniOverlay() {
         // Stop touch polling thread
         touchPollRunning.store(false, std::memory_order_release);
         threadWaitForExit(&touchPollThread);
         threadClose(&touchPollThread);
+
+        // Stop graph sampling thread
+        if (graphSampleRunning.exchange(false, std::memory_order_acq_rel)) {
+            threadWaitForExit(&graphSampleThread);
+            threadClose(&graphSampleThread);
+        }
 
         CloseThreads();
         FullMode = true;
@@ -907,7 +1011,41 @@ public:
                         }
                     } else if (key == "FPS") {
                         //dimensions = renderer->drawString("144.4", false, 0, 0, fontsize, renderer->a(0x0000));
-                        width = renderer->getTextDimensions("144.4", false, fontsize).first;
+                        if (settings.showFpsGraph) {
+                            // Graph column width = span from the content-left edge (gx, where the
+                            // max legend label is drawn) to and including the right border's
+                            // outermost pixel.
+                            //
+                            // The left margin (rect_x_s) must be wide enough to fit the max legend
+                            // label ("60", "90", "120", etc.) at the legend font size, plus 1 scaled
+                            // pixel of breathing room. Using a fixed scaled native constant (15 or 22)
+                            // was wrong: the font renders at lround(10 * displayScale) px, so the
+                            // actual glyph width changes non-linearly with scale and can't be reliably
+                            // predicted from a fixed constant. Measuring it directly guarantees the
+                            // layout and draw blocks agree at every displayScale.
+                            //
+                            // Draw geometry:
+                            //   rect_x_s = measured (below)
+                            //   rect_w   = lround(180 * displayScale)
+                            //   border   = drawEmptyRect(gx + rect_x_s + 1, ..., rect_w + 3, ...)
+                            //   border's RIGHTMOST PIXEL, relative to gx = rect_x_s + rect_w + 3
+                            // width is an inclusive extent: last pixel = gx + width - 1. To land
+                            // exactly on the border's rightmost pixel:
+                            //   width = (rect_x_s + rect_w + 3) + 1 = rect_x_s + rect_w + 4
+                            // The +1/+2/+3/+4 are literal framebuffer pixels, not scaled.
+                            {
+                                const int legendFontSize = (int)lround(10.0f * displayScale);
+                                // Worst-case legend string: 3-digit rate produces the widest label.
+                                const char* legendStr = (graphRefreshRate >= 100) ? "120" : "60";
+                                const uint32_t legendW = renderer->getTextDimensions(legendStr, false, legendFontSize).first;
+                                // 1 scaled pixel gap between legend right edge and plot left edge.
+                                const uint32_t rectX_s = legendW + (uint32_t)lround(1.0f * displayScale);
+                                const uint32_t rectW_s = (uint32_t)lround(180.0f * displayScale);
+                                width = rectX_s + rectW_s + 4;
+                            }
+                        } else {
+                            width = renderer->getTextDimensions("144.4", false, fontsize).first;
+                        }
                     } else if (key == "RES") {
                         //dimensions = renderer->drawString("3840x21603840x2160", false, 0, 0, fontsize, renderer->a(0x0000));
                         if (settings.showPrimaryResolution) {
@@ -990,6 +1128,13 @@ public:
                     if (rectangleWidth < width) {
                         rectangleWidth = width;
                     }
+                }
+                {
+                    // Convert space-unit paddings (spacing / horizontal / vertical /
+                    // cornerRadius) to pixels now that the font is loaded. Sets
+                    // settings.spacing (px), horizPadPx, topPadding, bottomPadding,
+                    // and cornerRadius from their tenths-of-a-space settings.
+                    miniApplySpaceUnits(renderer);
                 }
                 {
                     // drawString(Y) places the baseline at Y.  We want the top and bottom gaps
@@ -1146,7 +1291,7 @@ public:
                         flags |= 32;
                     } else if (key == "FPS" && !(flags & 64) && GameRunning && FPSavg != 254) {
                         shouldAdd = true;
-                        labelText = "帧率";
+                        labelText = settings.showFpsGraph ? "FPS_GRAPH" : "帧率";
                         flags |= 64;
                     } else if (key == "RES" && !(flags & 128) && GameRunning && m_resolutionOutput[0].width) {
                         shouldAdd = true;
@@ -1190,22 +1335,23 @@ public:
                 const size_t actualEntryCount = labelLines.size();
                 
                 // Height layout (drawString puts baseline at Y):
-                //   currentY for row 1 = boxTop + ascent + spacing + topPadding
-                //     -> first glyph top pixel sits at: spacing + topPadding   (= top gap)
+                //   currentY for row 1 = boxTop + ascent + topPadding
+                //     -> first glyph top pixel sits at: topPadding   (= top gap)
                 //   each subsequent row advances by (fontsize + spacing)
-                //   last row's baseline   = boxTop + ascent + spacing + topPadding + (N-1)*(fontsize+spacing)
+                //   last row's baseline   = boxTop + ascent + topPadding + (N-1)*(fontsize+spacing)
                 //     -> last glyph bottom = last baseline + descentAbs
-                //   We want bottom gap == top gap == (spacing + bottomPadding), with bottomPadding == topPadding.
-                //   So: cachedHeight = last_glyph_bottom + spacing + bottomPadding
-                //                    = ascent + descentAbs + 2*spacing + topPadding + bottomPadding
+                //   We want bottom gap == top gap == bottomPadding, with bottomPadding == topPadding.
+                //   So: cachedHeight = last_glyph_bottom + bottomPadding
+                //                    = ascent + descentAbs + topPadding + bottomPadding
                 //                      + (N-1)*(fontsize+spacing)
+                //   spacing is now purely the inter-row gap; it no longer contributes to the
+                //   top/bottom edge gaps (those are controlled solely by Vertical Padding).
                 //   Using ascent+descentAbs (measured) instead of fontsize avoids the 1-2 px truncation
                 //   error stbtt's int-cast leaves in (ascent+descentAbs) vs fontsize -- that error was
                 //   leaking entirely into the bottom gap, making it visibly fatter than the top.
                 const int   firstRowExtent = cachedBaselineOffset + cachedDescentAbs;  // ascent + descentAbs
                 cachedHeight = (firstRowExtent
                               + ((fontsize + settings.spacing) * (actualEntryCount > 0 ? actualEntryCount - 1 : 0))
-                              + 2 * settings.spacing
                               + topPadding + bottomPadding);
 
 
@@ -1221,7 +1367,11 @@ public:
 
                 // Split-row compression handling
                 {
-                    const int splitCompression = settings.spacing / 2;
+                    // A stacked block occupies two row-slots in the height formula but its
+                    // two rows are only (fontsize + stackSpacingPx) apart, i.e. the bottom row
+                    // is pulled up by (spacing - stackSpacingPx) from its natural slot. Reclaim
+                    // exactly that slack from the box height so the bottom gap stays correct.
+                    const int splitCompression = (int)settings.spacing - stackSpacingPx;
                 
                     const auto hasKey = [&](const char* key) {
                         return std::find(showKeys.begin(), showKeys.end(), key) != showKeys.end();
@@ -1364,6 +1514,50 @@ public:
                         hasKey("DTC")) {
                         cachedHeight -= splitCompression;
                     }
+
+                    //
+                    // FPS_GRAPH row height adjustment
+                    //
+                    // The graph row is taller than a normal text row (fontsize px).
+                    // graphRowHeightPx is the total pixel height of the graph content
+                    // (graphRefreshRate + 12, scaled to framebuffer space). The base
+                    // cachedHeight formula already budgets fontsize px for this row;
+                    // add the difference to account for the real height.
+                    if (settings.showFpsGraph && hasKey("FPS") && FPSavg != 254.0f) {
+                        // Treat the FPS graph as a single line whose height IS the border box:
+                        // its top edge pixel is the line's top, its bottom edge pixel the line's
+                        // bottom. The box is drawn as drawEmptyRect(.., rect_h + 4) tall, with
+                        //   rect_h = round(refreshRate * displayScale)   (matches the draw section)
+                        // so the line/slot height is rect_h + 4. Substituting that for the usual
+                        // fontsize slot lets the normal padding/spacing logic place the box exactly
+                        // like any other line — no manual gaps.
+                        const int rectH  = (int)lround(graphRefreshRate * displayScale);
+                        graphRowHeightPx = rectH + 4;                       // box top..bottom edge, px
+
+                        // The closed-form cachedHeight uses fontsize slots for interior rows and
+                        // firstRowExtent for the last row.  The "slot" for the FPS graph must carry
+                        // the same trailing slack that every text slot does (fontsize - firstRowExtent)
+                        // so the gap below the box matches the gap above it and every other row gap.
+                        // That means the graph's effective slot height = graphRowHeightPx + slack
+                        //   = graphRowHeightPx + (fontsize - firstRowExtent).
+                        //
+                        //   • non-last: replaces a fontsize slot
+                        //               -> extra = (boxH + slack) - fontsize = boxH - firstRowExtent
+                        //   • last:     replaces the firstRowExtent term at the end of the formula
+                        //               -> extra = (boxH + slack) - (fontsize + firstRowExtent... 
+                        //               Wait — last row: base formula ends with firstRowExtent (no
+                        //               spacing after it).  The graph's last-row contribution is
+                        //               graphRowHeightPx (box fills its own extent with no slack
+                        //               stripped off, because bottomPadding goes right after the box).
+                        //               -> extra = boxH - firstRowExtent
+                        //
+                        // Both cases reduce to the same expression.
+                        const bool graphIsLastRow = !labelLines.empty() && labelLines.back() == "FPS_GRAPH";
+                        (void)graphIsLastRow; // both branches are identical; kept for clarity
+                        const int  extraH = graphRowHeightPx - firstRowExtent;
+                        if (extraH > 0)
+                            cachedHeight += extraH;
+                    }
                 }
                 //const uint32_t margin = (fontsize * 4);
                 
@@ -1385,8 +1579,8 @@ public:
             
             const int leftPadding = settings.showLabels ? 0 : settings.spacing + bottomPadding;
             const uint32_t overlayWidth = settings.showLabels 
-                ? (margin + rectangleWidth + (fontsize / 3))
-                : (rectangleWidth + (fontsize / 3) * 2 + leftPadding);
+                ? (margin + rectangleWidth + horizPadPx)
+                : (rectangleWidth + horizPadPx + leftPadding);
             
             int _frameOffsetX;
             
@@ -1479,22 +1673,29 @@ public:
                 // Update layer position
                 updateLayerPos();
             } else {
-                // Non-limited memory mode - use original clipping offset logic
+                // Non-limited memory mode
                 _frameOffsetX = frameOffsetX;
-                
+
                 // Check X bounds and calculate clipping offset
                 if (cachedBaseX + _frameOffsetX < int(framePadding)) {
                     clippingOffsetX = framePadding - (cachedBaseX + _frameOffsetX);
                 } else if ((cachedBaseX + _frameOffsetX + overlayWidth) > screenWidth - framePadding) {
                     clippingOffsetX = (screenWidth - framePadding) - (cachedBaseX + _frameOffsetX + overlayWidth);
                 }
-                
-                // Check Y bounds and calculate clipping offset  
-                if (cachedBaseY + drawY < int(framePadding)) {
-                    clippingOffsetY = framePadding - (cachedBaseY + drawY);
-                } else if ((cachedBaseY + drawY + cachedHeight) > screenHeight - framePadding) {
-                    clippingOffsetY = (screenHeight - framePadding) - (cachedBaseY + drawY + cachedHeight);
+
+                // Clamp frameOffsetY directly (same formula as handleInput's maxY).
+                // Previously this used clippingOffsetY to shift the draw position for
+                // one frame only, leaving frameOffsetY out-of-bounds so the rect would
+                // flash off-screen on the next frame before snapping back, and the touch
+                // poll thread (which reads frameOffsetY for hit-testing) would use the
+                // stale value, breaking drag activation near the edges.
+                {
+                    const int minFrameY = (int)framePadding - cachedBaseY;
+                    const int maxFrameY = screenHeight - (int)framePadding - (int)cachedHeight - cachedBaseY;
+                    frameOffsetY = std::max(minFrameY, std::min(frameOffsetY, std::max(minFrameY, maxFrameY)));
+                    drawY = frameOffsetY;
                 }
+                clippingOffsetY = 0;
             }
             
             // Apply to all drawing calls
@@ -1521,8 +1722,10 @@ public:
                 variableLines.push_back(variablesStr.substr(start));
             }
             
-            // Draw each label and variable line individually
-            uint32_t currentY = cachedBaseY + cachedBaselineOffset + settings.spacing + topPadding;
+            // Draw each label and variable line individually.
+            // Top gap is topPadding only (Vertical Padding); spacing is the inter-row
+            // gap and is no longer added at the top/bottom edges.
+            uint32_t currentY = cachedBaseY + cachedBaselineOffset + topPadding;
             size_t labelIndex = 0;
             
             static const std::vector<std::string> specialChars = {""};
@@ -1616,7 +1819,8 @@ public:
                      labelLines[labelIndex] == "RAM_SVDDQ_ONLY" || labelLines[labelIndex] == "RAM_STEMP" ||
                      labelLines[labelIndex] == "BAT_STOP" || labelLines[labelIndex] == "BAT_SBOT" ||
                      labelLines[labelIndex] == "DTC_STOP" || labelLines[labelIndex] == "DTC_SBOT" ||
-                     labelLines[labelIndex] == "RAM_SLOAD_TOP" || labelLines[labelIndex] == "RAM_SLOAD_BOT"));
+                     labelLines[labelIndex] == "RAM_SLOAD_TOP" || labelLines[labelIndex] == "RAM_SLOAD_BOT" ||
+                     labelLines[labelIndex] == "FPS_GRAPH"));
                 if (!isTmpDualRow && settings.showLabels && !labelLines[labelIndex].empty()) {
                     labelWidth = renderer->getTextDimensions(labelLines[labelIndex], false, fontsize).first;
                     labelCenterX = cachedBaseX + (margin / 2) - (labelWidth / 2);
@@ -1628,7 +1832,7 @@ public:
                 const int leftPadding = settings.showLabels ? 0 : settings.spacing + bottomPadding;
                 const int baseX = settings.showLabels 
                     ? (cachedBaseX + margin + _frameOffsetX + clippingOffsetX)
-                    : (cachedBaseX + (fontsize / 3) + leftPadding + _frameOffsetX + clippingOffsetX);
+                    : (cachedBaseX + leftPadding + _frameOffsetX + clippingOffsetX);
                 const int baseY = currentY + drawY + clippingOffsetY;
                 
                 if (labelIndex < labelLines.size() && labelLines[labelIndex] == "SOC") {
@@ -1786,7 +1990,7 @@ public:
                     }
                     // Draw "TMP" label and fan speed centered between the two rows
                     // Rows use half inter-row spacing, so center is at (fontsize + spacing/2) / 2
-                    const int centerY = (int)currentY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int centerY = (int)currentY + ((int)fontsize + stackSpacingPx) / 2;
                     if (settings.showLabels) {
                         const std::string tmpLbl = "TMP";
                         const uint32_t tmpLblW = renderer->getTextDimensions(tmpLbl, false, fontsize).first;
@@ -1815,7 +2019,7 @@ public:
                         // Draw at top-row Y (baseY), center Y (fanY), and bot-row Y so it spans the full block height.
                         // Scissored so the three glyphs meet pixel-perfect without alpha-blend overlap shading.
                         const int tmpTopRowY = baseY;
-                        const int tmpBotRowY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                        const int tmpBotRowY = baseY + (int)fontsize + stackSpacingPx;
                         divider_scissor::drawDividerStack3(renderer, fanX,
                             tmpTopRowY, fanY, tmpBotRowY,
                             fontsize, settings.separatorColor);
@@ -1847,7 +2051,7 @@ public:
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "TMP_BOT") {
                     // Dual-row TMP: bottom row = SOC/PCB/Skin temps, shifted up by spacing/2
-                    const int botY = baseY - (int)settings.spacing / 2;
+                    const int botY = baseY - ((int)settings.spacing - stackSpacingPx);
                     int currentX = baseX;
                     size_t pos = 0;
                     bool parseSuccess = true;
@@ -1875,7 +2079,7 @@ public:
                     }
                                     // Compensate: loop will add full spacing, but visually we drew spacing/2 less,
                     // so pull currentY back by spacing/2 so the next row gap stays normal.
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "TMP_COMP") {
                     // Component temps only: single row with HIGH gradient
                     int currentX = baseX;
@@ -1940,11 +2144,11 @@ public:
                     // RAM load split row 1: [cpu% gpu%] at baseY. "RAM" label centered between rows.
                     // Right side mirrors the non-loadsplit layout: rSplitVDDQ stacks VDD2 here / VDDQ on BOT;
                     // rSplitTemp puts volt or temp on top depending on voltageAtEndRAM; otherwise nothing on top.
-                    const int ramLoadCtrY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int ramLoadCtrY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     ramLoadTopBaseY = baseY;  // store TOP baseY so BOT can compute center-Y consistently
                     // 3-stack scissoring: top=baseY, center=ramLoadCtrY, bot=ramLoadBotY (in RAM_SLOAD_BOT).
                     // Predicted bot Y = baseY + fontsize + spacing/2.
-                    const int ramLoadPredictedBotY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                    const int ramLoadPredictedBotY = baseY + (int)fontsize + stackSpacingPx;
                     bool ramLoadScissorOK = divider_scissor::getDividerScissorMetrics(
                         fontsize, dividerCenterOffY, dividerLeftPad, dividerFullW);
                     int ramLoadCutTC = 0;
@@ -2160,11 +2364,11 @@ public:
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "RAM_SLOAD_BOT") {
                     // RAM load split row 2: total%@freq at baseX, then right-side at ramLoadVoltColX.
-                    const int ramLoadBotY = baseY - (int)settings.spacing / 2;
+                    const int ramLoadBotY = baseY - ((int)settings.spacing - stackSpacingPx);
                     // Center Y is computed from TOP's baseY (stored by RAM_SLOAD_TOP) so it matches
                     // TOP's center connector position exactly. Using BOT's baseY directly would point
                     // BELOW the bot row instead of between the two rows.
-                    const int ramLoadCtrY = ramLoadTopBaseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int ramLoadCtrY = ramLoadTopBaseY + ((int)fontsize + stackSpacingPx) / 2;
                     // 3-stack scissoring: BOT row. ramLoadStackCutCB was written by RAM_SLOAD_TOP.
                     // (In inline mode, the inline block computes its own cuts locally and doesn't read this.)
                     const bool ramLoadBotScissorOK = (ramLoadStackCutCB >= 0);
@@ -2377,16 +2581,16 @@ public:
                         }
                     }
                     ramLoadStackCutCB = -1;
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "RAM_SVDD2") {
                     // Split VDD2/VDDQ row 1.
                     // Usage drawn at centre (between rows), VDD2 at baseY (top), mirroring TMP_SFAN single-group.
-                    const int ramCenterY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int ramCenterY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     // 3-stack scissoring: top=baseY, center=ramCenterY, bot=svddqY (drawn in RAM_SVDDQ).
                     // svddqY (predicted) = baseY_SVDDQ - spacing/2 = (baseY + fontsize + spacing) - spacing/2
                     //                    = baseY + fontsize + spacing/2.
-                    const int ramSplitPredictedBotY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                    const int ramSplitPredictedBotY = baseY + (int)fontsize + stackSpacingPx;
                     bool ramSplitScissorOK = divider_scissor::getDividerScissorMetrics(
                         fontsize, dividerCenterOffY, dividerLeftPad, dividerFullW);
                     int ramSplitCutTC = 0;
@@ -2528,7 +2732,7 @@ public:
                     }
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "RAM_SVDDQ") {
                     // Split VDD2/VDDQ row 2: VDDQ at the volt column; uses spacing/2 compression.
-                    const int svddqY = baseY - (int)settings.spacing / 2;
+                    const int svddqY = baseY - ((int)settings.spacing - stackSpacingPx);
                     // 3-stack scissoring: this is the BOT row of the SVDD2/SVDDQ stack.
                     // ramSplitStackCutCB was written by RAM_SVDD2 on the previous iteration.
                     const bool svddqScissorOK = (ramSplitStackCutCB >= 0);
@@ -2567,14 +2771,14 @@ public:
                     // Cut consumed — clear it so a stale value doesn't leak into a future frame
                     // where SVDD2 might not run before SVDDQ (defensive; current label order makes this safe anyway).
                     ramSplitStackCutCB = -1;
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "CPU_SVOLT") {
                     // CPU split row 1: data centered; normal=volt at top, voltAtEnd=temp at top.
-                    const int cpuCenterY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int cpuCenterY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     // 3-stack scissoring: top=baseY, center=cpuCenterY, bot=stempY (drawn in CPU_STEMP).
                     // stempY (predicted) = baseY_STEMP - spacing/2 = baseY + fontsize + spacing/2.
-                    const int cpuSplitPredictedBotY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                    const int cpuSplitPredictedBotY = baseY + (int)fontsize + stackSpacingPx;
                     bool cpuSplitScissorOK = divider_scissor::getDividerScissorMetrics(
                         fontsize, dividerCenterOffY, dividerLeftPad, dividerFullW);
                     int cpuSplitCutTC = 0;
@@ -2610,9 +2814,11 @@ public:
                     };
 
                     int currentX = baseX;
-                    renderer->drawStringWithColoredSections(currentLine, false, specialChars,
-                        currentX, cpuCenterY, fontsize, settings.textColor, settings.separatorColor);
-                    currentX += (int)renderer->getTextDimensions(currentLine, false, fontsize).first;
+                    // currentLine is MINI_CPU_compressed_c: may contain B sentinel characters inside
+                    // [] when a core percentage is single-digit (e.g. "[B1% 24% ...]@freq").
+                    // Use drawBracketAware so those sentinels are rendered fully transparent,
+                    // matching the generic CPU label path and how Micro handles this case.
+                    currentX += drawBracketAware(currentLine, currentX, cpuCenterY);
                     cpuSplitVoltColX = currentX;
                     if (settings.showLabels) {
                         const std::string cpuLbl = "CPU";
@@ -2648,7 +2854,7 @@ public:
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "CPU_STEMP") {
                     // CPU split row 2: normal=temp at bottom; voltAtEnd=volt at bottom.
-                    const int stempY = baseY - (int)settings.spacing / 2;
+                    const int stempY = baseY - ((int)settings.spacing - stackSpacingPx);
                     // 3-stack scissoring: this is the BOT row. cpuSplitStackCutCB was written by CPU_SVOLT.
                     const bool cpuStempScissorOK = (cpuSplitStackCutCB >= 0);
                     auto cpuDrawBotRowDiv = [&](int dx) {
@@ -2684,7 +2890,7 @@ public:
                         }
                     }
                     cpuSplitStackCutCB = -1;
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "CPU_SFULL") {
                     // Full CPU freq split — row 1.
@@ -2692,7 +2898,7 @@ public:
                     //   mirrors CPU_SVOLT exactly — brackets on center row, volt (or temp if voltAtEnd) at baseY top.
                     // cpuFullStacked=false: brackets on baseY (top), volt+temp inline after brackets.
                     const bool cpuFullStacked = settings.showCPUTemp && settings.showStackedCPUTemp && settings.realVolts;
-                    const int cpuFullCenterY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int cpuFullCenterY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     cpuFullSplitBracketsW = (int)renderer->getTextDimensions(currentLine, false, fontsize).first;
                     // Column width = whichever line is longer: brackets or the freq line below.
                     // This ensures both rows are right-aligned to the same edge so neither overflows
@@ -2751,7 +2957,7 @@ public:
                         const bool willDrawAnyCpu = (settings.realVolts && MINI_CPU_volt_c[0]) ||
                                                      mini_cpu_temp_c[0];
                         if (willDrawAnyCpu) {
-                            const int cpuFullBotY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                            const int cpuFullBotY = baseY + (int)fontsize + stackSpacingPx;
                             // 3-divider stack: top (baseY), center (cpuFullCenterY), bot (cpuFullBotY).
                             // Scissored so the three glyphs meet pixel-perfect without alpha-blend overlap.
                             divider_scissor::drawDividerStack3(renderer, voltColX,
@@ -2829,7 +3035,7 @@ public:
                     // when brackets are wider, freq is pushed right and brackets stay at baseX.
                     // Either way the divider / volt column sits cleanly at baseX + cpuFullSplitColW.
                     const bool cpuFullStacked = settings.showCPUTemp && settings.showStackedCPUTemp && settings.realVolts;
-                    const int freqY = baseY - (int)settings.spacing / 2;
+                    const int freqY = baseY - ((int)settings.spacing - stackSpacingPx);
                     const int freqW = currentLine.empty() ? 0 : (int)renderer->getTextDimensions(currentLine, false, fontsize).first;
                     // Right-align freq to the shared column right edge.
                     const int freqX = baseX + cpuFullSplitColW - freqW;
@@ -2858,13 +3064,13 @@ public:
                             }
                         }
                     }
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "GPU_SVOLT") {
                     // GPU split row 1: normal=volt at top; voltAtEnd=temp at top.
-                    const int gpuCenterY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int gpuCenterY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     // 3-stack scissoring: top=baseY, center=gpuCenterY, bot=stempY (drawn in GPU_STEMP).
-                    const int gpuSplitPredictedBotY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                    const int gpuSplitPredictedBotY = baseY + (int)fontsize + stackSpacingPx;
                     bool gpuSplitScissorOK = divider_scissor::getDividerScissorMetrics(
                         fontsize, dividerCenterOffY, dividerLeftPad, dividerFullW);
                     int gpuSplitCutTC = 0;
@@ -2934,7 +3140,7 @@ public:
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "GPU_STEMP") {
                     // GPU split row 2: normal=temp at bottom; voltAtEnd=volt at bottom.
-                    const int stempY = baseY - (int)settings.spacing / 2;
+                    const int stempY = baseY - ((int)settings.spacing - stackSpacingPx);
                     // 3-stack scissoring: this is the BOT row. gpuSplitStackCutCB was written by GPU_SVOLT.
                     const bool gpuStempScissorOK = (gpuSplitStackCutCB >= 0);
                     auto gpuDrawBotRowDiv = [&](int dx) {
@@ -2968,13 +3174,13 @@ public:
                         }
                     }
                     gpuSplitStackCutCB = -1;
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "RAM_SVDDQ_ONLY") {
                     // RAM temp split row 1 (single volt rail): data centered, volt at top (baseY).
-                    const int ramTCenterY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int ramTCenterY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     // 3-stack scissoring: top=baseY, center=ramTCenterY, bot=stempY (drawn in RAM_STEMP).
-                    const int ramTSplitPredictedBotY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                    const int ramTSplitPredictedBotY = baseY + (int)fontsize + stackSpacingPx;
                     bool ramTSplitScissorOK = divider_scissor::getDividerScissorMetrics(
                         fontsize, dividerCenterOffY, dividerLeftPad, dividerFullW);
                     int ramTSplitCutTC = 0;
@@ -3049,7 +3255,7 @@ public:
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "RAM_STEMP") {
                     // RAM temp split row 2: normal=temp at bottom; voltAtEnd=volt at bottom.
-                    const int stempY = baseY - (int)settings.spacing / 2;
+                    const int stempY = baseY - ((int)settings.spacing - stackSpacingPx);
                     // 3-stack scissoring: BOT row. ramTempSplitStackCutCB was written by RAM_SVDDQ_ONLY.
                     const bool ramStempScissorOK = (ramTempSplitStackCutCB >= 0);
                     auto rtDrawBotRowDiv = [&](int dx) {
@@ -3084,11 +3290,11 @@ public:
                         }
                     }
                     ramTempSplitStackCutCB = -1;
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "BAT_STOP") {
                     // BAT split row 1: top row. "BAT" label centered between both rows.
-                    const int batCenterY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int batCenterY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     if (settings.showLabels) {
                         const std::string batLbl = "BAT";
                         const uint32_t batLblW = renderer->getTextDimensions(batLbl, false, fontsize).first;
@@ -3109,7 +3315,7 @@ public:
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "BAT_SBOT") {
                     // BAT split row 2: bottom row, right-aligned to match top row.
-                    const int batBotY = baseY - (int)settings.spacing / 2;
+                    const int batBotY = baseY - ((int)settings.spacing - stackSpacingPx);
                     {
                         const char* topStr = settings.invertBatteryDisplay ? Battery_pct_c : Battery_c;
                         const uint32_t topW = topStr[0] ? renderer->getTextDimensions(std::string(topStr), false, fontsize).first : 0;
@@ -3118,14 +3324,14 @@ public:
                         const int botDrawX = baseX + batColW - (int)botW;
                         renderer->drawString(currentLine, false, botDrawX, batBotY, fontsize, settings.textColor);
                     }
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "DTC_STOP") {
                     // DTC split row 1: top half (text before DIVIDER_SYMBOL in user format).
                     // DTC label centered between both rows. The bottom row is sourced from the
                     // next variable line (_variableLines[i+1]) so we can right-align both halves
                     // within max(topW, botW) — shorter half right-aligns to the wider edge.
-                    const int dtcCenterY = baseY + ((int)fontsize + (int)settings.spacing / 2) / 2;
+                    const int dtcCenterY = baseY + ((int)fontsize + stackSpacingPx) / 2;
                     if (settings.showLabels) {
                         const std::string dtcLbl = settings.useDTCSymbol ? "\uE007" : "DTC";
                         const uint32_t dtcLblW = renderer->getTextDimensions(dtcLbl, false, fontsize).first;
@@ -3144,7 +3350,7 @@ public:
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "DTC_SBOT") {
                     // DTC split row 2: bottom half (text after DIVIDER_SYMBOL), right-aligned to match top.
-                    const int dtcBotY = baseY - (int)settings.spacing / 2;
+                    const int dtcBotY = baseY - ((int)settings.spacing - stackSpacingPx);
                     {
                         const std::string topStr = (i >= 1) ? _variableLines[i - 1] : std::string();
                         const uint32_t topW = topStr.empty() ? 0 : renderer->getTextDimensions(topStr, false, fontsize).first;
@@ -3153,7 +3359,7 @@ public:
                         const int botDrawX = baseX + dtcColW - (int)botW;
                         renderer->drawString(currentLine, false, botDrawX, dtcBotY, fontsize, settings.textColor);
                     }
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
 
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "TMP_SFAN") {
                     // Split fan row: temps + fan on row 1; "TMP" label drawn manually.
@@ -3163,9 +3369,9 @@ public:
                     const bool sfanHighGrad = settings.showComponentTemps;
                     const int sfanTempY = sfanIsDual
                         ? baseY
-                        : (baseY + ((int)fontsize + (int)settings.spacing / 2) / 2);
+                        : (baseY + ((int)fontsize + stackSpacingPx) / 2);
                     const int sfanLabelY = sfanIsDual
-                        ? (baseY + ((int)fontsize + (int)settings.spacing / 2) / 2)
+                        ? (baseY + ((int)fontsize + stackSpacingPx) / 2)
                         : sfanTempY;
                     int currentX = baseX;
                     size_t pos = 0;
@@ -3214,7 +3420,7 @@ public:
                     //   voltAtEnd OFF: volt=TOP(baseY), center=sfanCenterY, fan=BOT(botY)
                     // Cuts are computed here; sfanStackCutCB/TC are handed to TMP_SVOLT.
                     const int sfanCenterY  = sfanIsDual ? sfanLabelY : sfanTempY;
-                    const int sfanPredBotY = baseY + (int)fontsize + (int)settings.spacing / 2;
+                    const int sfanPredBotY = baseY + (int)fontsize + stackSpacingPx;
                     const bool sfanScissorOK = divider_scissor::getDividerScissorMetrics(
                         fontsize, dividerCenterOffY, dividerLeftPad, dividerFullW);
                     int sfanCutTC = 0, sfanCutCB = 0;
@@ -3242,7 +3448,7 @@ public:
                         const int fanDuty = safeFanDuty((int)Rotation_Duty);
                         const int fanDrawY = settings.voltageAtEndTMP
                             ? baseY
-                            : (baseY + (int)fontsize + (int)settings.spacing / 2);
+                            : (baseY + (int)fontsize + stackSpacingPx);
                         // Fan is TOP when voltAtEnd ON, BOT when voltAtEnd OFF
                         int afterDivX;
                         if (sfanScissorOK) {
@@ -3273,7 +3479,7 @@ public:
                     // Dual-row split (hasTemps): mirrors TMP_BOT with spacing/2 compression.
                     // Single-group (!hasTemps): volt drawn at sfanFanColX (same X column as fan above).
                     const bool hasTemps = currentLine.find("\u00B0") != std::string::npos;
-                    const int svoltY = baseY - (int)settings.spacing / 2;
+                    const int svoltY = baseY - ((int)settings.spacing - stackSpacingPx);
                     int currentX = hasTemps ? baseX : sfanFanColX;
                     if (hasTemps) {
                         size_t pos = 0;
@@ -3336,7 +3542,7 @@ public:
                     sfanStackCutTC = -1;
                     sfanStackCutCB = -1;
                     // Both dual-row and single-group split use spacing/2 compression: compensate currentY
-                    currentY -= (int)settings.spacing / 2;
+                    currentY -= ((int)settings.spacing - stackSpacingPx);
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "MEM") {
                     // MEM memory rendering with gradient color
                     // Extract numeric value for color determination
@@ -3371,7 +3577,250 @@ public:
                 } else {
                     // Normal rendering for all other line types (CPU, GPU, RAM, BAT, FPS, RES, DTC)
                     const std::string& curLabel = (labelIndex < labelLines.size()) ? labelLines[labelIndex] : "";
-                    if (curLabel == "CPU") {
+                    if (curLabel == "FPS_GRAPH") {
+                        // ── Embedded FPS graph ──────────────────────────────────────────
+                        // Geometry mirrors FPS_Graph.hpp exactly, scaled by displayScale.
+                        //
+                        // Geometry (all in framebuffer pixels, scaled by displayScale):
+                        //   rect_x_s  = getTextDimensions(legend_max, legendFontSize).width + 1 scaled px
+                        //               (font-metric-driven; matches the layout width calculation exactly)
+                        //   rect_w    = lround(180 * displayScale)
+                        //   rect_h    = lround(graphRefreshRate * displayScale)
+                        //   rect_y_s  = lround(5 * displayScale)
+                        //   x_end     = rect_x_s + rect_w
+                        //   lineOffset = 1
+                        //   Lines drawn at gx + xi + lineOffset + 1; rightmost xi = x_end:
+                        //     main line  ->  gx + rect_x_s + rect_w + 2  (directly left of border)
+                        //     shadow     ->  gx + rect_x_s + rect_w + 3  (overwritten by border)
+                        //   Border: drawEmptyRect(gx + rect_x_s + 1, ..., rect_w + 3, ...)
+                        //     right column  ->  gx + rect_x_s + rect_w + 3
+                        //
+                        // gx: left of the graph content area (= baseX).
+                        // gSlotTop: the row's slot top — where a normal line's top pixel sits.
+                        //
+                        const int gSlotTop = (int)currentY + (int)drawY - cachedBaselineOffset + clippingOffsetY;
+                        const int gx    = baseX;
+
+                        // rect_x_s: left margin wide enough to fit the max legend label at the
+                        // legend font size, plus 1 scaled pixel of breathing room. Derived from
+                        // getTextDimensions so it is correct at every displayScale — the same
+                        // formula used in the layout width calculation above.
+                        const int legendFontSizeG = (int)lround(10.0f * displayScale);
+                        const char* legendStrG = (graphRefreshRate >= 100) ? "120" : "60";
+                        const uint32_t legendWG = renderer->getTextDimensions(legendStrG, false, legendFontSizeG).first;
+                        const s16 rect_x_s = (s16)(legendWG + (uint32_t)lround(1.0f * displayScale));
+                        const s16 rect_w   = (s16)lround(180 * displayScale);
+                        const s16 rect_h   = (s16)lround(graphRefreshRate * displayScale);
+                        const s16 rect_y_s = (s16)lround(5 * displayScale);
+                        // Anchor the border box's TOP EDGE pixel on the slot top, so the FPS section's
+                        // start IS the box top edge (and its end the box bottom edge). The box is drawn
+                        // at gTopY + rect_y_s - 1, so choose gTopY to land that on gSlotTop. The box's
+                        // shape and size are unchanged — the whole assembly just shifts up by
+                        // (rect_y_s - 1) so its top edge coincides with where the line begins.
+                        const int gTopY = gSlotTop - (rect_y_s - 1);
+                        const s16 x_end    = rect_x_s + rect_w;
+                        // lineOffset = 1: the draw loop places the main line at gx + xi + lineOffset + 1.
+                        // With lineOffset=1 and xi=x_end the rightmost line pixel lands at
+                        // gx + rect_x_s + rect_w + 2, which is directly left of the border's right
+                        // column at gx + rect_x_s + rect_w + 3. The shadow (+2 extra) falls on the
+                        // border column itself and is overwritten when the border is drawn after the
+                        // loop, so no stray translucent pixel appears between the line and the border.
+                        const s16 lineOffset = 1;
+
+                        // Y positions for reference lines
+                        const s16 y_30_line = rect_y_s + (rect_h / 2);
+                        // range is the normalization denominator for the plot's Y mapping. It MUST be
+                        // in FPS units (matching reading.value, which is lround(FPSavg)), NOT scaled
+                        // pixels. The Y formula multiplies the FPS-space fraction by rect_h (scaled
+                        // pixels) to get the pixel offset, so mixing the two scales here would compress
+                        // the data. In FPS_Graph rectangle_height == refreshRate (both unscaled), so its
+                        // range = rectangle_height + 1 happens to equal refreshRate + 1; here rect_h is
+                        // scaled by displayScale, so we must use the refresh rate directly. (At 720p
+                        // displayScale == 1, so rect_h + 1 == refreshRate + 1 and both agree; at 1080p
+                        // rect_h + 1 would be wrong, e.g. 91 vs 61 for a 60 Hz panel.)
+                        const s16 range     = (s16)graphRefreshRate + 1; // FPS units, scale-independent
+
+                        // Draw "FPS" label — same catColor as every other label, centred vertically
+                        if (settings.showLabels) {
+                            const uint32_t lw = renderer->getTextDimensions("FPS", false, fontsize).first;
+                            const int labelCX = cachedBaseX + ((int)(fontsize * 4) / 2) - (int)(lw / 2);
+                            // Vertically centre the label's cap-box on the dashed centre line
+                            // (gTopY + rect_y_s + rect_h/2). drawString's Y is the text BASELINE, and
+                            // "FPS" is all-caps with no descenders, so its cap-box runs from
+                            // baseline-capHeight to baseline and its visual centre is baseline-capHeight/2.
+                            // To put that visual centre on the dashed line, the baseline must sit
+                            // capHeight/2 BELOW it. capHeight in px = cachedBaselineOffset (it already
+                            // scales with the font, so this is correct at both 720p and 1080p). Using
+                            // fontsize/2 here (em half-height) overshoots downward by (fontsize-capHeight)/2
+                            // and is why the label looked a touch low.
+                            const int labelCY = gTopY + rect_y_s + (rect_h / 2) + (cachedBaselineOffset / 2);
+                            renderer->drawString("FPS", false,
+                                labelCX + _frameOffsetX + clippingOffsetX,
+                                labelCY,
+                                fontsize, settings.catColor);
+                        }
+
+
+                        // Plot background: drawn immediately after the border, so the
+                        // dashed line, legend, FPS average, and data line all render on
+                        // top of it. Skipped entirely when alpha is 0.
+                        // plotBackgroundColor is uint16_t (RGBA4444); alpha is the top nibble.
+                        if ((graphSettings.plotBackgroundColor >> 12) & 0xF)
+                            renderer->drawRect(
+                                gx + rect_x_s + 2,
+                                gTopY + rect_y_s,
+                                rect_w + 1, // +1px right: data sits on the rightmost column; widen so it no longer touches the border
+                                rect_h + 2,
+                                aWithOpacity(graphSettings.plotBackgroundColor));
+
+                        // Dashed half-way reference line — inside the border
+                        // Original: drawDashedLine(rect_x+2, y_30, rect_x+rect_w+1, y_30, 6, ...)
+                        renderer->drawDashedLine(
+                            gx + rect_x_s + 2 + (displayScale == 1.5 ? 6 : 3),
+                            gTopY + y_30_line,
+                            gx + rect_x_s + rect_w + 2 - (displayScale == 1.5 ? 5 : 3),
+                            gTopY + y_30_line,
+                            6,
+                            aWithOpacity(graphSettings.dashedLineColor));
+
+                        // Y-axis labels
+                        // max label: drawn at gx (left edge of content area); rect_x_s was sized
+                        //   to fit it exactly so it always ends just left of the plot.
+                        // min label: gx + rect_x_s - lround(10 * displayScale)  (1 scaled-px gap
+                        //   left of plot left edge, matching the original native geometry).
+                        {
+                            char legend_max[4] = "60";
+                            char legend_min[2] = "0";
+                            if (graphRefreshRate < 100) {
+                                legend_max[0] = (char)('0' + (graphRefreshRate / 10));
+                                legend_max[1] = (char)('0' + (graphRefreshRate % 10));
+                                legend_max[2] = '\0';
+                            } else {
+                                legend_max[0] = (char)('0' + (graphRefreshRate / 100));
+                                legend_max[1] = (char)('0' + ((graphRefreshRate / 10) % 10));
+                                legend_max[2] = (char)('0' + (graphRefreshRate % 10));
+                                legend_max[3] = '\0';
+                            }
+                            // legendFontSizeG was computed above for rect_x_s — reuse it here.
+                            renderer->drawString(&legend_max[0], false,
+                                gx,
+                                gTopY + rect_y_s + (int)lround(7 * displayScale),
+                                legendFontSizeG, graphSettings.maxFPSTextColor);
+                            // min "0": right-aligned with the trailing '0' of the max label.
+                            // drawString places each character's cursor at gx + sum_of_prior_advances,
+                            // so the trailing '0' of legend_max starts at:
+                            //   gx + (total_advance_of_legend_max - advance_of_'0')
+                            // Drawing legend_min at that same x makes the two '0' glyphs
+                            // pixel-identical in position at any scale or refresh rate.
+                            //
+                            // Y: bottom-align with the border's bottom edge.
+                            // drawString places the baseline at Y; the glyph's bottom-most inked
+                            // row is baseline + bounds[1] + height - 1 (one row above the baseline
+                            // for non-descending glyphs like '0'). borderBottomY is the last row of
+                            // drawEmptyRect(.., rect_h + 4): y + h - 1 = gTopY + rect_y_s + rect_h + 2.
+                            const int  borderBottomY = gTopY + rect_y_s + rect_h + 2;
+                            // zeroAdvance: use getTextDimensions — the same truncating static_cast<s32>
+                            // path as maxLabelAdvance — so both cursor offsets round identically.
+                            // (lround(xAdvance * currFontSize) can differ by 1 px from the truncating
+                            // cast used inside drawString, causing visible right-edge misalignment.)
+                            const int  zeroAdvance     = renderer->getTextDimensions("0", false, legendFontSizeG).first;
+                            const int  maxLabelAdvance = renderer->getTextDimensions(&legend_max[0], false, legendFontSizeG).first;
+                            // Glyph lookup is still needed for Y bottom-alignment only.
+                            const auto glyph0 = tsl::gfx::FontManager::getOrCreateGlyph('0', false, legendFontSizeG);
+                            // Offset (px) from baseline to the glyph's bottom-most rendered row.
+                            // Fallback -2 matches a non-descending glyph until the cache is warm.
+                            const int  zeroBottomFromBaseline = (glyph0 && glyph0->height > 0)
+                                ? (glyph0->bounds[1] + glyph0->height - 2)
+                                : -2;
+                            renderer->drawString(&legend_min[0], false,
+                                gx + maxLabelAdvance - zeroAdvance,
+                                borderBottomY - zeroBottomFromBaseline,
+                                legendFontSizeG, graphSettings.minFPSTextColor);
+                        }
+
+                        // FPS average text centred inside the plot
+                        if (graphFpsAvg_c[0]) {
+                            const int avgFontSize = (int)lround(
+                                ((graphRefreshRate > 60 || !graphRefreshRate) ? 63 : (int)(63.0f / (60.0f / graphRefreshRate)))
+                                * displayScale);
+                            const auto avgDim = renderer->getTextDimensions(graphFpsAvg_c, false, avgFontSize);
+                            const int avg_px = gx + rect_x_s + (((int)rect_w + 1 - (int)avgDim.first) / 2);
+                            const int avg_py = gTopY + rect_y_s + (rect_h / 2) + (avgFontSize / 2) - (int)lround(5 * displayScale);
+                            renderer->drawString(graphFpsAvg_c, false, avg_px, avg_py, avgFontSize, graphSettings.fpsColor);
+                        }
+
+                        // Draw the line graph
+                        // With lineOffset=1: drawLine(gx + xi + 2, ...) for shadow, drawLine(gx + xi + 1 + 1, ...) for main.
+                        //   rightmost xi = x_end = rect_x_s + rect_w  ->  main at gx + rect_x_s + rect_w + 2
+                        //   border right column = gx + rect_x_s + rect_w + 3  (one px of margin to spare)
+                        //   shadow at +3 is overwritten by the border drawn after the loop.
+                        {
+                            const size_t nReadings = graphReadings.size();
+                            s16 y_old_local = rect_y_s + rect_h;
+                            bool isAboveLocal = false;
+
+                            for (s16 xi = x_end; xi > (s16)(x_end - (s16)nReadings); xi--) {
+                                const size_t idx = nReadings - 1 - (size_t)(x_end - xi);
+                                s32 y_on_range = graphReadings[idx].value + 1;
+                                if (y_on_range < 0)             y_on_range = 0;
+                                else if (y_on_range > range) { isAboveLocal = true; y_on_range = range; }
+
+                                const s16 y = rect_y_s + (s16)std::lround(
+                                    (float)rect_h * ((float)(range - y_on_range) / (float)range));
+
+                                tsl::Color lineColor = graphSettings.mainLineColor;
+                                if (y == y_old_local && !isAboveLocal && graphReadings[idx].zero_rounded) {
+                                    if (y == y_30_line || y == rect_y_s)
+                                        lineColor = graphSettings.perfectLineColor;
+                                    else
+                                        lineColor = graphSettings.roundedLineColor;
+                                }
+
+                                // First (rightmost) column: snap y_old to y so the seed value
+                                // (plot floor) doesn't draw a full-height vertical line down the
+                                // right edge. Mirrors FPS_Graph.hpp's `if (x == x_end) y_old = y;`.
+                                if (xi == x_end)
+                                    y_old_local = y;
+
+                                // Shadow: same segment offset +1x, +1y in translucent black.
+                                // Drawn first so the main line paints on top.
+                                renderer->drawLine(
+                                    gx + xi + lineOffset + 2, gTopY + y + 1 + (displayScale == 1.5 ? 1 : 0),
+                                    gx + xi + lineOffset + 2, gTopY + y_old_local + 1 + (displayScale == 1.5 ? 1 : 0),
+                                    tsl::Color(0, 0, 0, 5));
+                                renderer->drawLine(
+                                    gx + xi + lineOffset + 1, gTopY + y + (displayScale == 1.5 ? 1 : 0),
+                                    gx + xi + lineOffset + 1, gTopY + y_old_local + (displayScale == 1.5 ? 1 : 0),
+                                    lineColor);
+
+                                isAboveLocal = false;
+                                y_old_local  = y;
+                            }
+                        }
+
+                        // Border rect: drawEmptyRect(gx + rect_x_s + 1, ..., rect_w + 3, rect_h + 4)
+                        //   right column = gx + rect_x_s + 1 + rect_w + 3 - 1 = gx + rect_x_s + rect_w + 3
+                        renderer->drawEmptyRect(
+                            gx + rect_x_s + 1,
+                            gTopY + rect_y_s - 1,
+                            rect_w + 3,
+                            rect_h + 4,
+                            aWithOpacity(graphSettings.borderColor));
+
+                        // currentY advance: advance by the box height PLUS the same slack that every
+                        // text row carries below its glyph (fontsize - firstRowExtent = fontsize -
+                        // cachedBaselineOffset - cachedDescentAbs).  Text rows advance by fontsize +
+                        // spacing; a glyph only fills firstRowExtent of that fontsize, leaving
+                        // (fontsize - firstRowExtent) px of empty space below it before the next
+                        // slot.  Without that slack the gap below the FPS box would be just `spacing`
+                        // while the gap above is `spacing + slack` — producing the asymmetry.  Adding
+                        // the same slack here makes both gaps equal (fontsize - firstRowExtent) +
+                        // spacing, identical to every text-to-text gap.
+                        const int textSlack = (int)fontsize - cachedBaselineOffset - cachedDescentAbs;
+                        currentY += graphRowHeightPx + (textSlack > 0 ? textSlack : 0) + (int)settings.spacing;
+                        ++labelIndex;
+                        continue; // skip the normal advance at end of loop
+                    } else if (curLabel == "CPU") {
                         // CPU may have a DIVIDER_SYMBOL suffix (volt inline): split at it so the
                         // divider still gets separatorColor while '#' padding gets transparent.
                         const std::string line = currentLine;
@@ -3590,12 +4039,12 @@ public:
             return std::find(showKeys.begin(), showKeys.end(), key) != showKeys.end();
         };
     
-        // Throttle data formatting to the user-specified refresh rate even when
+        // Throttle data formatting to the user-specified sample rate even when
         // the frame limiter is off (e.g. during drag/reposition).  The render
         // loop may call update() at vsync speed (~60 fps) while isDragging,
-        // but we only rebuild the display strings at 1/refreshRate intervals.
+        // but we only rebuild the display strings at 1/sampleRate intervals.
         const u64 nowTick = armGetSystemTick();
-        const u64 pollIntervalTicks = systemtickfrequency / settings.refreshRate;
+        const u64 pollIntervalTicks = systemtickfrequency / settings.sampleRate;
         const bool shouldUpdateData = (nowTick - lastDataUpdateTick) >= pollIntervalTicks;
         if (shouldUpdateData) lastDataUpdateTick = nowTick;
 
@@ -4109,10 +4558,24 @@ public:
 
                 // Prioritize 16:9 aspect ratios (e.g. 1280x720, 1920x1080) so the
                 // actual game render resolution appears before UI/buffer resolutions.
-                // stable_partition preserves call-count ordering within each group.
+                // stable_partition moves all 16:9 entries to the front while keeping
+                // non-16:9 entries after them; both groups retain their call-count order.
                 std::stable_partition(m_resolutionOutput, m_resolutionOutput + 8,
                     [](const resolutionCalls& r) {
                         return r.width != 0 && (r.width * 9 == r.height * 16);
+                    });
+
+                // Within the 16:9 group, sort by pixel area (largest first) so that
+                // 1920x1080 always precedes 1280x720 regardless of call counts.
+                // Find the end of the 16:9 prefix first.
+                resolutionCalls* end169 = m_resolutionOutput;
+                while (end169 < m_resolutionOutput + 8 &&
+                       end169->width != 0 &&
+                       end169->width * 9 == end169->height * 16)
+                    ++end169;
+                std::stable_sort(m_resolutionOutput, end169,
+                    [](const resolutionCalls& a, const resolutionCalls& b) {
+                        return (uint32_t)a.width * a.height > (uint32_t)b.width * b.height;
                     });
             }
         } else if (!GameRunning && resolutionLookup != 0) {
@@ -4310,6 +4773,37 @@ public:
                 else
                     snprintf(Temp_s, sizeof(Temp_s), "%2.1f [%2.1f - %2.1f]", FPSavg, FPSmin, FPSmax);
                 strcat(Temp, Temp_s);
+
+                // ── Graph readings update ──────────────────────────────────────
+                // Always maintain the ring-buffer regardless of showFpsGraph so
+                // toggling the setting doesn't produce a stale/empty graph.
+                if (settings.showFpsGraph) {
+                    // Update refreshRate from SaltySD shared memory
+                    const uint8_t srr = *(uint8_t*)((uintptr_t)shmemGetAddr(&_sharedmemory) + 1);
+                    if (srr) graphRefreshRate = srr;
+                    else     graphRefreshRate = 60;
+
+                    // Format avg string for graph overlay. This is the FPS graph's own number,
+                    // so it follows the FPS graph's integer setting (graphSettings.useIntegerFPS,
+                    // from the [fps-graph] config) to match the standalone graph -- NOT Mini's
+                    // settings.useIntegerFPS, which governs the plain "FPS" data row instead.
+                    if (FPSavg < 254.0f) {
+                        if (graphSettings.useIntegerFPS)
+                            snprintf(graphFpsAvg_c, sizeof(graphFpsAvg_c), "%d", (int)round(FPSavg));
+                        else
+                            snprintf(graphFpsAvg_c, sizeof(graphFpsAvg_c), "%.1f", FPSavg);
+                        // Ring-buffer is populated by graphSampleThread at 10 Hz,
+                        // independent of the overlay display refresh rate.
+                    } else {
+                        if (!graphReadings.empty()) {
+                            graphReadings.clear();
+                            graphReadings.shrink_to_fit();
+                        }
+                        graphFpsAvg_c[0] = '\0';
+                    }
+                }
+                // ──────────────────────────────────────────────────────────────
+
                 flags |= 64;
             }
             else if (key == "RES" && !(flags & 128) && GameRunning && m_resolutionOutput[0].width) {
@@ -4324,8 +4818,16 @@ public:
                 
                 if (w0 || w1) {
                     if (w0 && w1) {
-                        if ((w0 == old_res[1].first && h0 == old_res[1].second) ||
-                            (w1 == old_res[0].first && h1 == old_res[0].second)) {
+                        // Anti-flicker: if the two primary slots swapped since last frame,
+                        // restore the previous assignment to avoid flickering.
+                        // Guard: never swap if doing so would demote a 16:9 entry behind a
+                        // non-16:9 — 16:9 priority must always win over flicker suppression.
+                        const bool slot0is169 = (w0 * 9 == h0 * 16);
+                        const bool slot1is169 = (w1 * 9 == h1 * 16);
+                        const bool swapWouldDemote169 = slot0is169 && !slot1is169;
+                        if (!swapWouldDemote169 &&
+                            ((w0 == old_res[1].first && h0 == old_res[1].second) ||
+                             (w1 == old_res[0].first && h1 == old_res[0].second))) {
                             std::swap(w0, w1);
                             std::swap(h0, h1);
                         }
@@ -4479,10 +4981,12 @@ public:
                 }
             }
             
+            // Rough fallback height estimate (the draw path's drawCachedHeight is the
+            // authoritative value used for clamping). spacing no longer adds to edges.
             cachedOverlayHeight = ((fontsize + settings.spacing) * actualEntryCount) + 
-                                 settings.spacing + topPadding + bottomPadding;
+                                 topPadding + bottomPadding;
             if (settings.showComponentTemps && settings.showSocPcbSkinTemps)
-                cachedOverlayHeight -= settings.spacing / 2;
+                cachedOverlayHeight -= ((int)settings.spacing - stackSpacingPx);
             
             // Position calculation based on settings
             cachedBaseX = 0;
@@ -4494,8 +4998,8 @@ public:
         
         const int leftPadding = settings.showLabels ? 0 : settings.spacing + bottomPadding;
         const int overlayWidth = settings.showLabels 
-            ? (margin + rectangleWidth + (fontsize / 3))
-            : (rectangleWidth + (fontsize / 3) * 2 + leftPadding);
+            ? (margin + rectangleWidth + horizPadPx)
+            : (rectangleWidth + horizPadPx + leftPadding);
         // Use drawCachedHeight (the draw-path height) for clamping — cachedOverlayHeight is a
         // separate estimate that omits descentAbs and split compressions, so using it causes
         // maxY to be too large and the clipping guard pulls the rect back, leaving a gap.
