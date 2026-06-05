@@ -1319,8 +1319,7 @@ public:
                                     ax += renderer->drawString(restPart.substr(0, dv + dl), false, ax, singleItemY, fontsize, (settings.separatorColor)).first;
                                     const std::string ad = restPart.substr(dv + dl);
                                     if (!ad.empty()) {
-                                        static const std::vector<std::string> fic = {""};
-                                        renderer->drawStringWithColoredSections(ad, false, fic, ax, singleItemY, fontsize, textColorA, catColorA);
+                                        renderer->drawString(ad, false, ax, singleItemY, fontsize, catColorA);
                                     }
                                 } else {
                                     renderer->drawStringWithColoredSections(restPart, false, specialChars, ax, singleItemY, fontsize, textColorA, (settings.separatorColor));
@@ -1396,20 +1395,7 @@ public:
                             fanColX = rx; // mark where fan column starts -- divider+fan drawn below by fan row section
                             if (!rOK) {
                                 {
-                                    static const std::string socFanIcon_ = "";
-                                    const std::string socStr_(skin_temperature_c);
-                                    const size_t fanPos_ = socStr_.find(socFanIcon_);
-                                    uint32_t cx_ = current_x;
-                                    if (fanPos_ != std::string::npos) {
-                                        if (fanPos_ > 0)
-                                            cx_ += renderer->drawStringWithColoredSections(socStr_.substr(0, fanPos_), false, specialChars, cx_, tempDrawY, fontsize, textColorA, (settings.separatorColor)).first;
-                                        cx_ += renderer->drawString(socFanIcon_, false, cx_, tempDrawY, fontsize, (settings.catColor)).first;
-                                        const std::string afterFan_ = socStr_.substr(fanPos_ + socFanIcon_.size());
-                                        if (!afterFan_.empty())
-                                            renderer->drawStringWithColoredSections(afterFan_, false, specialChars, cx_, tempDrawY, fontsize, textColorA, (settings.separatorColor));
-                                    } else {
-                                        renderer->drawStringWithColoredSections(socStr_, false, specialChars, cx_, tempDrawY, fontsize, textColorA, (settings.separatorColor));
-                                    }
+                                    renderer->drawStringWithColoredSections(skin_temperature_c, false, specialChars, current_x, tempDrawY, fontsize, textColorA, (settings.separatorColor));
                                 }
                                 fanColX = current_x + renderer->getTextDimensions(skin_temperature_c, false, fontsize).first;
                             }
@@ -1467,10 +1453,9 @@ public:
                             {
                                 const int tmpFanDuty = safeFanDuty((int)Rotation_Duty);
                                 char tmpFanPctStr[24];
-                                snprintf(tmpFanPctStr, sizeof(tmpFanPctStr), " %d%%", tmpFanDuty);
-                                static const std::vector<std::string> tmpFanFic = {""};
-                                renderer->drawStringWithColoredSections(std::string(tmpFanPctStr), false, tmpFanFic,
-                                    fanColX + tmpDivW, fanDrawY, fontsize, textColorA, catColorA);
+                                snprintf(tmpFanPctStr, sizeof(tmpFanPctStr), "%d%%", tmpFanDuty);
+                                renderer->drawString(std::string(tmpFanPctStr), false,
+                                    fanColX + tmpDivW, fanDrawY, fontsize, textColorA);
                             }
                         }
 
@@ -1591,8 +1576,7 @@ public:
                                         rx += renderer->drawString(ult::DIVIDER_SYMBOL, false, rx, singleItemY, fontsize, (settings.separatorColor)).first;
                                     }
                                     if (!ad.empty()) {
-                                        static const std::vector<std::string> fic2 = {""};
-                                        renderer->drawStringWithColoredSections(ad, false, fic2, rx, singleItemY, fontsize, textColorA, catColorA);
+                                        renderer->drawString(ad, false, rx, singleItemY, fontsize, catColorA);
                                         rx += renderer->getTextDimensions(ad, false, fontsize).first;
                                     }
                                     // voltageAtEndTMP ON: volt after fan
@@ -1605,20 +1589,7 @@ public:
                                 }
                             }
                             if (!rOK) {
-                            static const std::string socFanIcon2_ = "";
-                            const std::string socStr2_(skin_temperature_c);
-                            const size_t fanPos2_ = socStr2_.find(socFanIcon2_);
-                            uint32_t cx2_ = current_x;
-                            if (fanPos2_ != std::string::npos) {
-                                if (fanPos2_ > 0)
-                                    cx2_ += renderer->drawStringWithColoredSections(socStr2_.substr(0, fanPos2_), false, specialChars, cx2_, gridBotY, fontsize, textColorA, (settings.separatorColor)).first;
-                                cx2_ += renderer->drawString(socFanIcon2_, false, cx2_, gridBotY, fontsize, (settings.catColor)).first;
-                                const std::string afterFan2_ = socStr2_.substr(fanPos2_ + socFanIcon2_.size());
-                                if (!afterFan2_.empty())
-                                    renderer->drawStringWithColoredSections(afterFan2_, false, specialChars, cx2_, gridBotY, fontsize, textColorA, (settings.separatorColor));
-                            } else {
-                                renderer->drawStringWithColoredSections(socStr2_, false, specialChars, cx2_, gridBotY, fontsize, textColorA, (settings.separatorColor));
-                            }
+                            renderer->drawStringWithColoredSections(skin_temperature_c, false, specialChars, current_x, gridBotY, fontsize, textColorA, (settings.separatorColor));
                         }
                         }
                     } else {
@@ -1683,8 +1654,7 @@ public:
                                     renderX += renderer->drawString(restPart.substr(0, divPos2 + dl), false, renderX, singleItemY, fontsize, (settings.separatorColor)).first;
                                     const std::string afterDiv = restPart.substr(divPos2 + dl);
                                     if (!afterDiv.empty()) {
-                                        static const std::vector<std::string> fic3 = {""};
-                                        renderer->drawStringWithColoredSections(afterDiv, false, fic3, renderX, singleItemY, fontsize, textColorA, catColorA);
+                                        renderer->drawString(afterDiv, false, renderX, singleItemY, fontsize, catColorA);
                                         renderX += renderer->getTextDimensions(afterDiv, false, fontsize).first;
                                     }
                                 } else {

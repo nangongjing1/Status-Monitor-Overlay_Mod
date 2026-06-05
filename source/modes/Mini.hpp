@@ -1856,24 +1856,10 @@ public:
                             int currentX = baseX;
                             renderer->drawString(tempPart, false, currentX, baseY, fontsize, tempColor);
                             
-                            // Render remaining text: separator in separatorColor, fan icon in catColor
+                            // Render remaining text: separator in separatorColor
                             if (!restPart.empty()) {
                                 currentX += renderer->getTextDimensions(tempPart, false, fontsize).first;
-                                static const std::string socFanIcon = "";
-                                const size_t fanPos = restPart.find(socFanIcon);
-                                if (fanPos != std::string::npos) {
-                                    // Before fan icon: separator char -> separatorColor
-                                    if (fanPos > 0)
-                                        currentX += renderer->drawStringWithColoredSections(restPart.substr(0, fanPos), false, specialChars, currentX, baseY, fontsize, settings.textColor, settings.separatorColor).first;
-                                    // Fan icon alone -> catColor
-                                    currentX += renderer->drawString(socFanIcon, false, currentX, baseY, fontsize, settings.catColor).first;
-                                    // After fan icon: remaining text (% value, optional volt sep+value) -> separatorColor for sep char
-                                    const std::string afterFan = restPart.substr(fanPos + socFanIcon.size());
-                                    if (!afterFan.empty())
-                                        renderer->drawStringWithColoredSections(afterFan, false, specialChars, currentX, baseY, fontsize, settings.textColor, settings.separatorColor);
-                                } else {
-                                    renderer->drawStringWithColoredSections(restPart, false, specialChars, currentX, baseY, fontsize, settings.textColor, settings.separatorColor);
-                                }
+                                renderer->drawStringWithColoredSections(restPart, false, specialChars, currentX, baseY, fontsize, settings.textColor, settings.separatorColor);
                             }
                         } else {
                             // Fallback: no C found after degrees, render normally
@@ -1944,11 +1930,9 @@ public:
                             // Draw divider (before fan) in separatorColor
                             currentX += renderer->drawString(restPart.substr(0, div1Pos + divLen), false, currentX, baseY, fontsize, settings.separatorColor).first;
                             const std::string afterDiv1 = restPart.substr(div1Pos + divLen);
-                            // Fan only (volt drawn explicitly), fan icon in catColor
+                            // Fan only (volt drawn explicitly)
                             if (!afterDiv1.empty()) {
-                                static const std::vector<std::string> tmpFanIconChars = {""};
-                                currentX += renderer->drawStringWithColoredSections(afterDiv1, false, tmpFanIconChars,
-                                    currentX, baseY, fontsize, settings.textColor, settings.catColor).first;
+                                currentX += renderer->drawString(afterDiv1, false, currentX, baseY, fontsize, settings.textColor).first;
                             }
                         } else {
                             currentX += renderer->drawStringWithColoredSections(restPart, false, specialChars, currentX, baseY, fontsize, settings.textColor, settings.separatorColor).first;
@@ -2037,10 +2021,9 @@ public:
                         if (settings.showFanPercentage) {
                             const int fanDuty = safeFanDuty((int)Rotation_Duty);
                             char fanPctStr[24];
-                            snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                            static const std::vector<std::string> fanIconChars = {""};
-                            renderer->drawStringWithColoredSections(std::string(fanPctStr), false, fanIconChars,
-                                afterContentX, fanY, fontsize, settings.textColor, settings.catColor);
+                            snprintf(fanPctStr, sizeof(fanPctStr), "%d%%", fanDuty);
+                            renderer->drawString(std::string(fanPctStr), false,
+                                afterContentX, fanY, fontsize, settings.textColor);
                             afterContentX += (int)renderer->getTextDimensions(std::string(fanPctStr), false, fontsize).first;
                         }
                         if (settings.voltageAtEndTMP && tmpTopHasVolt) {
@@ -2130,10 +2113,9 @@ public:
                         const int afterDivX = afterFanX + renderer->drawString(
                             ult::DIVIDER_SYMBOL, false, afterFanX, fanY, fontsize, settings.separatorColor).first;
                         char fanPctStr[24];
-                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                        static const std::vector<std::string> compFanIconChars = {""};
-                        renderer->drawStringWithColoredSections(std::string(fanPctStr), false, compFanIconChars,
-                            afterDivX, fanY, fontsize, settings.textColor, settings.catColor);
+                        snprintf(fanPctStr, sizeof(fanPctStr), "%d%%", fanDuty);
+                        renderer->drawString(std::string(fanPctStr), false,
+                            afterDivX, fanY, fontsize, settings.textColor);
                         afterFanX = afterDivX + (int)renderer->getTextDimensions(std::string(fanPctStr), false, fontsize).first;
                     }
                     if (settings.voltageAtEndTMP && compHasVolt) {
@@ -3469,10 +3451,9 @@ public:
                                 fontsize, settings.separatorColor).first;
                         }
                         char fanPctStr[24];
-                        snprintf(fanPctStr, sizeof(fanPctStr), " %d%%", fanDuty);
-                        static const std::vector<std::string> sfanIconChars = {""};
-                        renderer->drawStringWithColoredSections(std::string(fanPctStr), false, sfanIconChars,
-                            afterDivX, fanDrawY, fontsize, settings.textColor, settings.catColor);
+                        snprintf(fanPctStr, sizeof(fanPctStr), "%d%%", fanDuty);
+                        renderer->drawString(std::string(fanPctStr), false,
+                            afterDivX, fanDrawY, fontsize, settings.textColor);
                     }
                 } else if (labelIndex < labelLines.size() && labelLines[labelIndex] == "TMP_SVOLT") {
                     // Split volt row: row 2 draws optional SOC/PCB/Skin temps then SOC voltage.
