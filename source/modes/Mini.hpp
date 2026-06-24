@@ -1578,9 +1578,13 @@ public:
             int clippingOffsetX = 0, clippingOffsetY = 0;
             
             const int leftPadding = settings.showLabels ? 0 : settings.spacing + bottomPadding;
+            // When the border is on, expand the box rightward by borderThickness so the
+            // right-side interior gap stays visually equal to the left-side gap (which the
+            // border occupies). Content is shifted right by the same amount below.
+            const int borderInset = settings.useBorder ? (int)settings.borderThickness : 0;
             const uint32_t overlayWidth = settings.showLabels 
-                ? (margin + rectangleWidth + horizPadPx)
-                : (rectangleWidth + horizPadPx + leftPadding);
+                ? (margin + rectangleWidth + horizPadPx + borderInset)
+                : (rectangleWidth + horizPadPx + leftPadding + borderInset);
             
             int _frameOffsetX;
             
@@ -1698,16 +1702,33 @@ public:
                 clippingOffsetY = 0;
             }
             
+            // Configurable Switch 2 frame border. When the border is off the
+            // background fill is NOT contracted (borderOffset 0) and neither the
+            // bordered rect nor its colour wheel are built/drawn.
+            const s32 borderOffset = settings.useBorder ? 1 : 0;
             // Apply to all drawing calls
             renderer->drawRoundedRectSingleThreaded(
-                cachedBaseX + _frameOffsetX + clippingOffsetX, 
-                cachedBaseY + drawY + clippingOffsetY, 
-                overlayWidth, 
-                cachedHeight, 
+                cachedBaseX + _frameOffsetX + clippingOffsetX + borderOffset, 
+                cachedBaseY + drawY + clippingOffsetY + borderOffset,
+                overlayWidth - (2*borderOffset),
+                cachedHeight - (2*borderOffset), 
                 cornerRadius, 
                 a(bgColor)
             );
-                        
+
+            if (settings.useBorder) {
+                const auto w2 = makeBorderWheel(settings);
+                renderer->drawBorderedRoundedRect(
+                    cachedBaseX + _frameOffsetX + clippingOffsetX, 
+                    cachedBaseY + drawY + clippingOffsetY, 
+                    overlayWidth, 
+                    cachedHeight,
+                    settings.borderThickness,
+                    cornerRadius, 
+                    aWithOpacity(settings.borderColor),
+                    settings.useDynamicBorder ? &w2 : nullptr
+                );
+            }
             
             // Split Variables into lines for individual positioning
             std::vector<std::string> variableLines;
@@ -1823,7 +1844,7 @@ public:
                      labelLines[labelIndex] == "FPS_GRAPH"));
                 if (!isTmpDualRow && settings.showLabels && !labelLines[labelIndex].empty()) {
                     labelWidth = renderer->getTextDimensions(labelLines[labelIndex], false, fontsize).first;
-                    labelCenterX = cachedBaseX + (margin / 2) - (labelWidth / 2);
+                    labelCenterX = cachedBaseX + (margin / 2) - (labelWidth / 2) + borderInset;
                     renderer->drawString(labelLines[labelIndex], false, labelCenterX + _frameOffsetX + clippingOffsetX, currentY + drawY + clippingOffsetY, fontsize, settings.catColor);
                 }
                 
@@ -1831,8 +1852,8 @@ public:
                 const std::string& currentLine = _variableLines[i];
                 const int leftPadding = settings.showLabels ? 0 : settings.spacing + bottomPadding;
                 const int baseX = settings.showLabels 
-                    ? (cachedBaseX + margin + _frameOffsetX + clippingOffsetX)
-                    : (cachedBaseX + leftPadding + _frameOffsetX + clippingOffsetX);
+                    ? (cachedBaseX + margin + borderInset + _frameOffsetX + clippingOffsetX)
+                    : (cachedBaseX + leftPadding + borderInset + _frameOffsetX + clippingOffsetX);
                 const int baseY = currentY + drawY + clippingOffsetY;
                 
                 if (labelIndex < labelLines.size() && labelLines[labelIndex] == "SOC") {
@@ -1978,7 +1999,7 @@ public:
                     if (settings.showLabels) {
                         const std::string tmpLbl = "TMP";
                         const uint32_t tmpLblW = renderer->getTextDimensions(tmpLbl, false, fontsize).first;
-                        const uint32_t tmpLblX = cachedBaseX + (margin / 2) - (tmpLblW / 2);
+                        const uint32_t tmpLblX = cachedBaseX + (margin / 2) - (tmpLblW / 2) + borderInset;
                         renderer->drawString(tmpLbl, false, tmpLblX + _frameOffsetX + clippingOffsetX,
                             centerY + drawY + clippingOffsetY, fontsize, settings.catColor);
                     }
@@ -2095,7 +2116,7 @@ public:
                     if (settings.showLabels) {
                         const std::string tmpLbl = "TMP";
                         const uint32_t tmpLblW = renderer->getTextDimensions(tmpLbl, false, fontsize).first;
-                        const uint32_t tmpLblX = cachedBaseX + (margin / 2) - (tmpLblW / 2);
+                        const uint32_t tmpLblX = cachedBaseX + (margin / 2) - (tmpLblW / 2) + borderInset;
                         renderer->drawString(tmpLbl, false, tmpLblX + _frameOffsetX + clippingOffsetX,
                             baseY, fontsize, settings.catColor);
                     }
@@ -2181,7 +2202,7 @@ public:
                     if (settings.showLabels) {
                         const std::string ramLbl = "RAM";
                         const uint32_t ramLblW = renderer->getTextDimensions(ramLbl, false, fontsize).first;
-                        const uint32_t ramLblX = cachedBaseX + (margin / 2) - (ramLblW / 2);
+                        const uint32_t ramLblX = cachedBaseX + (margin / 2) - (ramLblW / 2) + borderInset;
                         renderer->drawString(ramLbl, false, ramLblX + _frameOffsetX + clippingOffsetX,
                             ramLoadCtrY, fontsize, settings.catColor);
                     }
@@ -2619,7 +2640,7 @@ public:
                     if (settings.showLabels) {
                         const std::string ramLbl = "RAM";
                         const uint32_t ramLblW = renderer->getTextDimensions(ramLbl, false, fontsize).first;
-                        const uint32_t ramLblX = cachedBaseX + (margin / 2) - (ramLblW / 2);
+                        const uint32_t ramLblX = cachedBaseX + (margin / 2) - (ramLblW / 2) + borderInset;
                         renderer->drawString(ramLbl, false, ramLblX + _frameOffsetX + clippingOffsetX,
                             ramCenterY, fontsize, settings.catColor);
                     }
@@ -2805,7 +2826,7 @@ public:
                     if (settings.showLabels) {
                         const std::string cpuLbl = "CPU";
                         const uint32_t cpuLblW = renderer->getTextDimensions(cpuLbl, false, fontsize).first;
-                        const uint32_t cpuLblX = cachedBaseX + (margin / 2) - (cpuLblW / 2);
+                        const uint32_t cpuLblX = cachedBaseX + (margin / 2) - (cpuLblW / 2) + borderInset;
                         renderer->drawString(cpuLbl, false, cpuLblX + _frameOffsetX + clippingOffsetX,
                             cpuCenterY, fontsize, settings.catColor);
                     }
@@ -2895,7 +2916,7 @@ public:
                     const int bracketsOffsetX = cpuFullSplitColW - cpuFullSplitBracketsW;
                     const std::string cpuLbl = "CPU";
                     const uint32_t cpuLblW = renderer->getTextDimensions(cpuLbl, false, fontsize).first;
-                    const uint32_t cpuLblX = cachedBaseX + (margin / 2) - (cpuLblW / 2);
+                    const uint32_t cpuLblX = cachedBaseX + (margin / 2) - (cpuLblW / 2) + borderInset;
                     if (cpuFullStacked) {
                         // ── Stacked mode: brackets on TOP row (baseY), volt inline after brackets.
                         // CPU_SFREQ (bottom row) draws @freq right-aligned + temp right of volt column.
@@ -3095,7 +3116,7 @@ public:
                     if (settings.showLabels) {
                         const std::string gpuLbl = "GPU";
                         const uint32_t gpuLblW = renderer->getTextDimensions(gpuLbl, false, fontsize).first;
-                        const uint32_t gpuLblX = cachedBaseX + (margin / 2) - (gpuLblW / 2);
+                        const uint32_t gpuLblX = cachedBaseX + (margin / 2) - (gpuLblW / 2) + borderInset;
                         renderer->drawString(gpuLbl, false, gpuLblX + _frameOffsetX + clippingOffsetX,
                             gpuCenterY, fontsize, settings.catColor);
                     }
@@ -3207,7 +3228,7 @@ public:
                     if (settings.showLabels) {
                         const std::string ramLbl = "RAM";
                         const uint32_t ramLblW = renderer->getTextDimensions(ramLbl, false, fontsize).first;
-                        const uint32_t ramLblX = cachedBaseX + (margin / 2) - (ramLblW / 2);
+                        const uint32_t ramLblX = cachedBaseX + (margin / 2) - (ramLblW / 2) + borderInset;
                         renderer->drawString(ramLbl, false, ramLblX + _frameOffsetX + clippingOffsetX,
                             ramTCenterY, fontsize, settings.catColor);
                     }
@@ -3280,7 +3301,7 @@ public:
                     if (settings.showLabels) {
                         const std::string batLbl = "BAT";
                         const uint32_t batLblW = renderer->getTextDimensions(batLbl, false, fontsize).first;
-                        const uint32_t batLblX = cachedBaseX + (margin / 2) - (batLblW / 2);
+                        const uint32_t batLblX = cachedBaseX + (margin / 2) - (batLblW / 2) + borderInset;
                         renderer->drawString(batLbl, false, batLblX + _frameOffsetX + clippingOffsetX,
                             batCenterY, fontsize, settings.catColor);
                     }
@@ -3317,7 +3338,7 @@ public:
                     if (settings.showLabels) {
                         const std::string dtcLbl = settings.useDTCSymbol ? "\uE007" : "DTC";
                         const uint32_t dtcLblW = renderer->getTextDimensions(dtcLbl, false, fontsize).first;
-                        const uint32_t dtcLblX = cachedBaseX + (margin / 2) - (dtcLblW / 2);
+                        const uint32_t dtcLblX = cachedBaseX + (margin / 2) - (dtcLblW / 2) + borderInset;
                         renderer->drawString(dtcLbl, false, dtcLblX + _frameOffsetX + clippingOffsetX,
                             dtcCenterY, fontsize, settings.catColor);
                     }
@@ -3388,7 +3409,7 @@ public:
                     if (settings.showLabels) {
                         const std::string tmpLbl = "TMP";
                         const uint32_t tmpLblW = renderer->getTextDimensions(tmpLbl, false, fontsize).first;
-                        const uint32_t tmpLblX = cachedBaseX + (margin / 2) - (tmpLblW / 2);
+                        const uint32_t tmpLblX = cachedBaseX + (margin / 2) - (tmpLblW / 2) + borderInset;
                         renderer->drawString(tmpLbl, false, tmpLblX + _frameOffsetX + clippingOffsetX,
                             sfanLabelY, fontsize, settings.catColor);
                     }
@@ -3631,7 +3652,7 @@ public:
                         // Draw "FPS" label — same catColor as every other label, centred vertically
                         if (settings.showLabels) {
                             const uint32_t lw = renderer->getTextDimensions("FPS", false, fontsize).first;
-                            const int labelCX = cachedBaseX + ((int)(fontsize * 4) / 2) - (int)(lw / 2);
+                            const int labelCX = cachedBaseX + ((int)(fontsize * 4) / 2) - (int)(lw / 2) + borderInset;
                             // Vertically centre the label's cap-box on the dashed centre line
                             // (gTopY + rect_y_s + rect_h/2). drawString's Y is the text BASELINE, and
                             // "FPS" is all-caps with no descenders, so its cap-box runs from
@@ -3653,7 +3674,7 @@ public:
                         // dashed line, legend, FPS average, and data line all render on
                         // top of it. Skipped entirely when alpha is 0.
                         // plotBackgroundColor is uint16_t (RGBA4444); alpha is the top nibble.
-                        if ((graphSettings.plotBackgroundColor >> 12) & 0xF)
+                        if (graphSettings.useGraphBackground && ((graphSettings.plotBackgroundColor >> 12) & 0xF))
                             renderer->drawRect(
                                 gx + rect_x_s + 2,
                                 gTopY + rect_y_s,
@@ -3788,12 +3809,25 @@ public:
 
                         // Border rect: drawEmptyRect(gx + rect_x_s + 1, ..., rect_w + 3, rect_h + 4)
                         //   right column = gx + rect_x_s + 1 + rect_w + 3 - 1 = gx + rect_x_s + rect_w + 3
-                        renderer->drawEmptyRect(
-                            gx + rect_x_s + 1,
-                            gTopY + rect_y_s - 1,
-                            rect_w + 3,
-                            rect_h + 4,
-                            aWithOpacity(graphSettings.borderColor));
+                        //renderer->drawEmptyRect(
+                        //    gx + rect_x_s + 1,
+                        //    gTopY + rect_y_s - 1,
+                        //    rect_w + 3,
+                        //    rect_h + 4,
+                        //    aWithOpacity(graphSettings.borderColor));
+
+                        if (graphSettings.useGraphBorder) {
+                            const auto w2 = makeBorderWheel(graphSettings);
+                            renderer->drawBorderedRoundedRect(
+                                gx + rect_x_s + 1,
+                                gTopY + rect_y_s - 1,
+                                rect_w + 3,
+                                rect_h + 4,
+                                1,
+                                0,
+                                aWithOpacity(graphSettings.borderColor),
+                                graphSettings.useDynamicBorder ? &w2 : nullptr);
+                        }
 
                         // currentY advance: advance by the box height PLUS the same slack that every
                         // text row carries below its glyph (fontsize - firstRowExtent = fontsize -
@@ -4754,13 +4788,21 @@ public:
                 flags |= 32;
             }
             else if (key == "FPS" && !(flags & 64) && GameRunning) {
-                if (Temp[0]) strcat(Temp, "\n");
-                char Temp_s[24];
-                if (settings.useIntegerFPS)
-                    snprintf(Temp_s, sizeof(Temp_s), "%d [%d - %d]", (int)round(FPSavg), (int)round(FPSmin), (int)round(FPSmax));
-                else
-                    snprintf(Temp_s, sizeof(Temp_s), "%2.1f [%2.1f - %2.1f]", FPSavg, FPSmin, FPSmax);
-                strcat(Temp, Temp_s);
+                // Emit the FPS row into Variables ONLY when there is a valid reading,
+                // matching the layout's labelLines gate (key=="FPS" && GameRunning &&
+                // FPSavg != 254). The drawer pairs Variables lines to labelLines by
+                // index, so writing a placeholder "254 [..]" row here while the layout
+                // omits it shifts every row below for a frame -- the brief "rows
+                // un-stack then snap back" flicker seen as the FPS graph first appears.
+                if (FPSavg != 254.0f) {
+                    if (Temp[0]) strcat(Temp, "\n");
+                    char Temp_s[24];
+                    if (settings.useIntegerFPS)
+                        snprintf(Temp_s, sizeof(Temp_s), "%d [%d - %d]", (int)round(FPSavg), (int)round(FPSmin), (int)round(FPSmax));
+                    else
+                        snprintf(Temp_s, sizeof(Temp_s), "%2.1f [%2.1f - %2.1f]", FPSavg, FPSmin, FPSmax);
+                    strcat(Temp, Temp_s);
+                }
 
                 // ── Graph readings update ──────────────────────────────────────
                 // Always maintain the ring-buffer regardless of showFpsGraph so

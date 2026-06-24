@@ -40,6 +40,7 @@ class RefreshRateConfig;
 class SampleRateConfig;
 class FontSizeConfig;
 class FontSizeSelector;
+class PaddingsConfig;
 class ColorConfig;
 class ColorSelector;
 class AlphaSelector;
@@ -103,45 +104,71 @@ inline std::string getColorName(const std::string& hexColor) {
                       ? hexColor.substr(0, 4) : hexColor;
 
     static const std::map<std::string, std::string> colorNames = {
-        {"#000","黑色"},      {"#222","炭灰色"},    {"#444","深灰色"},
-        {"#666","灰色"},       {"#999","浅灰色"},   {"#CCC","银色"},
-        {"#EEE","灰白色"},  {"#FFF","白色"},
+        // Neutrals
+        {"#000","Black"},        {"#222","Charcoal"},     {"#444","Dark Gray"},
+        {"#666","Gray"},         {"#789","Slate"},         {"#899","Cool Gray"},
+        {"#999","Light Gray"},   {"#CCC","Silver"},        {"#EEE","Off-White"},
+        {"#FEE","Warm White"},   {"#FFF","White"},
 
-        {"#200","深红色"},   {"#700","栗色"},       {"#B22","猩红色"},
-        {"#F00","红色"},        {"#F66","浅红色"},    {"#FAA","鲑鱼色"},
+        // Reds
+        {"#200","Dark Red"},     {"#802","Burgundy"},      {"#700","Maroon"},
+        {"#B22","Crimson"},      {"#F20","Scarlet"},       {"#F00","Red"},
+        {"#F33","Tomato"},       {"#F66","Light Red"},     {"#F84","Coral"},
+        {"#FAA","Salmon"},
 
-        {"#520","深橙色"},{"#A40","焦橙色"}, {"#F80","橙色"},
-        {"#FB6","浅橙色"},{"#FC8","桃色"},
+        // Oranges
+        {"#520","Dark Orange"},  {"#A40","Burnt Orange"},  {"#B41","Rust"},
+        {"#F40","Vermilion"},    {"#F80","Orange"},        {"#FA6","Apricot"},
+        {"#FB6","Light Orange"}, {"#FC8","Peach"},
 
-        {"#220","深黄色"},{"#CA0","金色"},         {"#FF0","黄色"},
-        {"#FF6","浅黄色"},{"#FFC","奶油色"},
+        // Yellows
+        {"#220","Dark Yellow"},  {"#880","Olive"},         {"#CA0","Gold"},
+        {"#DB0","Mustard"},      {"#ECA","Wheat"},         {"#FC0","Amber"},
+        {"#FF0","Yellow"},       {"#FF6","Light Yellow"},  {"#FFC","Cream"},
 
-        {"#020","深绿色"}, {"#063","森林绿"}, {"#080","绿色"},
-        {"#0C0","青柠绿"}, {"#0F0","亮绿色"}, {"#8F8","浅绿色"},
-        {"#CFA","薄荷色"},
+        // Greens
+        {"#020","Dark Green"},   {"#063","Forest Green"},  {"#080","Green"},
+        {"#0C5","Emerald"},      {"#484","Fern"},          {"#682","Olive Green"},
+        {"#0C0","Lime Green"},   {"#8F0","Chartreuse"},    {"#0F0","Bright Green"},
+        {"#8F8","Light Green"},  {"#9B9","Sage"},          {"#AEC","Seafoam"},
+        {"#BEB","Pale Green"},   {"#CFA","Mint"},
 
-        {"#022","深青色"},  {"#066","青色"},         {"#0AA","水绿色"},
-        {"#0FF","青蓝色"},       {"#8FF","浅青色"},
+        // Teals & Cyans
+        {"#022","Dark Teal"},    {"#055","Dark Cyan"},     {"#066","Teal"},
+        {"#08A","Cerulean"},     {"#0AA","Aqua"},          {"#0FF","Cyan"},
+        {"#799","Steel Cyan"},   {"#8FF","Light Cyan"},    {"#9EC","Seafoam Green"},
 
-        {"#002","午夜蓝"},{"#003","深蓝色"},  {"#04A","海军蓝"},
-        {"#06F","皇家蓝"}, {"#00F","蓝色"},         {"#2DF","浅蓝色"},
-        {"#8CF","天蓝色"},   {"#ACE","粉蓝色"},
+        // Blues
+        {"#003","Dark Blue"},    {"#008","Navy"},          {"#04A","Cobalt"},
+        {"#359","Denim"},        {"#657","Slate Navy"},    {"#48B","Steel Blue"},
+        {"#06F","Royal Blue"},   {"#00F","Blue"},          {"#0AF","Azure"},
+        {"#69E","Cornflower"},   {"#2DF","Light Blue"},    {"#8CF","Sky Blue"},
+        {"#ACE","Powder Blue"},  {"#CEF","Ice Blue"},
 
-        {"#202","深紫色"},{"#404","茄紫色"},     {"#608","靛蓝色"},
-        {"#808","紫色"},     {"#A0F","紫罗兰"},       {"#C8F","薰衣草紫"},
-        {"#D9F","浅薰衣草紫"},
+        // Purples
+        {"#202","Dark Purple"},  {"#404","Deep Purple"},   {"#608","Indigo"},
+        {"#64F","Indigo Blue"},  {"#75F","Violet Blue"},   {"#808","Purple"},
+        {"#66C","Periwinkle"},    {"#93C","Amethyst"},      {"#A0F","Violet"},
+        {"#969","Mauve"},         {"#C8F","Lavender"},      {"#CCF","Light Periwinkle"},
+        {"#D7D","Orchid"},        {"#DAD","Plum"},          {"#D9F","Thistle"},
 
-        {"#606","深品红"},{"#F0F","品红色"},     {"#F4A","艳粉色"},
-        {"#F8A","粉色"},       {"#FCE","浅粉色"},
+        // Magentas & Pinks
+        {"#606","Dark Magenta"}, {"#F0F","Magenta"},       {"#F09","Fuchsia"},
+        {"#F4A","Hot Pink"},     {"#F69","Rose"},          {"#F8A","Pink"},
+        {"#C89","Dusty Rose"},   {"#F9C","Petal"},         {"#FBD","Baby Pink"},
+        {"#FCE","Light Pink"},   {"#FDE","Blush"},
 
-        {"#321","深棕色"}, {"#642","棕色"},        {"#A75","浅棕色"},
-        {"#DB8","棕褐色"},
+        // Browns
+        {"#321","Dark Brown"},   {"#642","Brown"},         {"#755","Muted Mauve"},
+        {"#B73","Caramel"},      {"#A53","Sienna"},        {"#A75","Light Brown"},
+        {"#A98","Taupe"},        {"#CB8","Sand"},          {"#DB8","Tan"},
+        {"#FE9","Khaki"},
     };
 
     auto it = colorNames.find(rgb);
     if (it != colorNames.end()) {
         if (rgb == "#000" && hexColor.length() == 5 && hexColor[4] == '0')
-            return "透明";
+            return "Transparent";
         return it->second;
     }
     return rgb;
@@ -195,7 +222,7 @@ inline void selectItem(tsl::elm::ListItem*& lastSelected,
 
 // Build a standard OverlayFrame, attach content, and return it.
 inline tsl::elm::Element* makeFrame(const std::string& subtitle, tsl::elm::Element* content) {
-    auto* f = new tsl::elm::OverlayFrame("状态监控", subtitle);
+    auto* f = new tsl::elm::OverlayFrame("Status Monitor", subtitle);
     f->setContent(content);
     return f;
 }
@@ -234,38 +261,50 @@ public:
     void setSwatchColor(tsl::Color color) { m_swatchColor = color; }
 
     virtual void draw(tsl::gfx::Renderer* renderer) override {
-        const std::string full = this->m_value;
-
-        // x = getX() + getWidth() - textWidth(full,20) - 19
-        // (equivalent to drawValue's getX() + m_maxWidth + 47 with full value)
-        const s32 fullValueWidth = renderer->getTextDimensions(full, false, 20).first;
-        const s32 swatchX = this->getX() + this->getWidth() - fullValueWidth - 19;
-
-        // Strip the swatch so the parent never renders it.
-        std::string withoutSwatch = full;
-        const auto pos = withoutSwatch.find(COLOR_SWATCH);
-        if (pos != std::string::npos) {
-            withoutSwatch.erase(pos, COLOR_SWATCH.size());
-            while (!withoutSwatch.empty() && withoutSwatch.front() == ' ')
-                withoutSwatch.erase(withoutSwatch.begin());
-        }
-        this->m_value    = withoutSwatch;
-        this->m_maxWidth = 0;
-        Base::draw(renderer);
-        this->m_value    = full;
-        this->m_maxWidth = 0;
-
-        // Draw the swatch once in m_swatchColor at the correct position.
         static constexpr s32 fontSize   = 20;
         static constexpr u16 itemHeight = isMini ? tsl::style::MiniListItemDefaultHeight
                                                  : tsl::style::ListItemDefaultHeight;
         static constexpr s32 yOffset    = (tsl::style::ListItemDefaultHeight - itemHeight) / 2 + 1;
         const s32 swatchY = this->getY() + 45 - yOffset - 1;
-        renderer->drawStringWithColoredSections(
-            COLOR_SWATCH, false, COLOR_SWATCH_SPECIAL,
-            swatchX, swatchY, fontSize, tsl::Color(0, 0, 0, 0), m_swatchColor);
-    }
 
+        if (this->m_flags.m_radioSelector && ult::useSwitch2Style) {
+            // Switch 2 radio mode: base draws the radio circle with COLOR_SWATCH as
+            // the label text (left of circle). We overdraw the label in the true
+            // swatch color so it appears colored rather than plain white/grey.
+            this->m_maxWidth = 0;
+            Base::draw(renderer);
+            // groupLeft mirrors drawRadioSelector's anchor: getX() + m_maxWidth + 47.
+            // Read m_maxWidth (now freshly recalculated by Base::draw) BEFORE zeroing it.
+            const s32 groupLeft = this->getX() + this->m_maxWidth + 47;
+            this->m_maxWidth = 0;
+            renderer->drawStringWithColoredSections(
+                COLOR_SWATCH, false, COLOR_SWATCH_SPECIAL,
+                groupLeft, swatchY, fontSize, tsl::Color(0, 0, 0, 0), m_swatchColor);
+        } else {
+            // Switch 1 / non-radio mode: original swatch-in-value behavior.
+            const std::string full = this->m_value;
+
+            const s32 fullValueWidth = renderer->getTextDimensions(full, false, 20).first;
+            const s32 swatchX = this->getX() + this->getWidth() - fullValueWidth - 19;
+
+            std::string withoutSwatch = full;
+            const auto pos = withoutSwatch.find(COLOR_SWATCH);
+            if (pos != std::string::npos) {
+                withoutSwatch.erase(pos, COLOR_SWATCH.size());
+                while (!withoutSwatch.empty() && withoutSwatch.front() == ' ')
+                    withoutSwatch.erase(withoutSwatch.begin());
+            }
+            this->m_value    = withoutSwatch;
+            this->m_maxWidth = 0;
+            Base::draw(renderer);
+            this->m_value    = full;
+            this->m_maxWidth = 0;
+
+            renderer->drawStringWithColoredSections(
+                COLOR_SWATCH, false, COLOR_SWATCH_SPECIAL,
+                swatchX, swatchY, fontSize, tsl::Color(0, 0, 0, 0), m_swatchColor);
+        }
+    }
 private:
     tsl::Color m_swatchColor;
 };
@@ -276,39 +315,65 @@ using MiniColorSwatchListItem = ColorSwatchListItemT<true>;
 
 // Shared color palette used by ColorSelector.
 static const std::vector<std::pair<std::string, std::string>> g_colorPalette = {
-    {"黑色","#000"},        {"炭灰色","#222"},     {"深灰色","#444"},
-    {"灰色","#666"},         {"浅灰色","#999"},   {"银色","#CCC"},
-    {"灰白色","#EEE"},    {"白色","#FFF"},
+    // Neutrals
+    {"Black","#000"},        {"Charcoal","#222"},      {"Dark Gray","#444"},
+    {"Gray","#666"},         {"Slate","#789"},          {"Cool Gray","#899"},
+    {"Light Gray","#999"},   {"Silver","#CCC"},         {"Off-White","#EEE"},
+    {"Warm White","#FEE"},   {"White","#FFF"},
 
-    {"深红色","#200"},     {"栗色","#700"},       {"猩红色","#B22"},
-    {"红色","#F00"},          {"浅红色","#F66"},    {"鲑鱼色","#FAA"},
+    // Reds
+    {"Dark Red","#200"},     {"Burgundy","#802"},       {"Maroon","#700"},
+    {"Crimson","#B22"},      {"Scarlet","#F20"},        {"Red","#F00"},
+    {"Tomato","#F33"},       {"Light Red","#F66"},      {"Coral","#F84"},
+    {"Salmon","#FAA"},
 
-    {"深橙色","#520"},  {"焦橙色","#A40"}, {"橙色","#F80"},
-    {"浅橙色","#FB6"}, {"桃色","#FC8"},
+    // Oranges
+    {"Dark Orange","#520"},  {"Burnt Orange","#A40"},   {"Rust","#B41"},
+    {"Vermilion","#F40"},    {"Orange","#F80"},         {"Apricot","#FA6"},
+    {"Light Orange","#FB6"}, {"Peach","#FC8"},
 
-    {"深黄色","#220"},  {"金色","#CA0"},         {"黄色","#FF0"},
-    {"浅黄色","#FF6"}, {"奶油色","#FFC"},
+    // Yellows
+    {"Dark Yellow","#220"},  {"Olive","#880"},          {"Gold","#CA0"},
+    {"Mustard","#DB0"},      {"Wheat","#ECA"},          {"Amber","#FC0"},
+    {"Yellow","#FF0"},       {"Light Yellow","#FF6"},   {"Cream","#FFC"},
 
-    {"深绿色","#020"},   {"森林绿","#063"}, {"绿色","#080"},
-    {"青柠绿","#0C0"},   {"亮绿色","#0F0"}, {"浅绿色","#8F8"},
-    {"薄荷色","#CFA"},
+    // Greens
+    {"Dark Green","#020"},   {"Forest Green","#063"},   {"Green","#080"},
+    {"Emerald","#0C5"},      {"Fern","#484"},           {"Olive Green","#682"},
+    {"Lime Green","#0C0"},   {"Chartreuse","#8F0"},     {"Bright Green","#0F0"},
+    {"Light Green","#8F8"},  {"Sage","#9B9"},           {"Seafoam","#AEC"},
+    {"Pale Green","#BEB"},   {"Mint","#CFA"},
 
-    {"深青色","#022"},    {"青色","#066"},         {"水绿色","#0AA"},
-    {"青蓝色","#0FF"},         {"浅青色","#8FF"},
+    // Teals & Cyans
+    {"Dark Teal","#022"},    {"Dark Cyan","#055"},      {"Teal","#066"},
+    {"Cerulean","#08A"},     {"Aqua","#0AA"},           {"Cyan","#0FF"},
+    {"Steel Cyan","#799"},   {"Light Cyan","#8FF"},     {"Seafoam Green","#9EC"},
 
-    {"午夜蓝","#002"},{"深蓝色","#003"},    {"海军蓝","#04A"},
-    {"皇家蓝","#06F"},   {"蓝色","#00F"},         {"浅蓝色","#2DF"},
-    {"天蓝色","#8CF"},     {"粉蓝色","#ACE"},
+    // Blues
+    {"Dark Blue","#003"},    {"Navy","#008"},           {"Cobalt","#04A"},
+    {"Denim","#359"},        {"Slate Navy","#657"},     {"Steel Blue","#48B"},
+    {"Royal Blue","#06F"},   {"Blue","#00F"},           {"Azure","#0AF"},
+    {"Cornflower","#69E"},   {"Light Blue","#2DF"},     {"Sky Blue","#8CF"},
+    {"Powder Blue","#ACE"},  {"Ice Blue","#CEF"},
 
-    {"深紫色","#202"},  {"茄紫色","#404"},     {"靛蓝色","#608"},
-    {"紫色","#808"},       {"紫罗兰","#A0F"},       {"薰衣草紫","#C8F"},
-    {"浅薰衣草紫","#D9F"},
+    // Purples
+    {"Dark Purple","#202"},  {"Deep Purple","#404"},    {"Indigo","#608"},
+    {"Indigo Blue","#64F"},  {"Violet Blue","#75F"},    {"Purple","#808"},
+    {"Periwinkle","#66C"},     {"Amethyst","#93C"},     {"Violet","#A0F"},
+    {"Mauve","#969"},          {"Lavender","#C8F"},     {"Light Periwinkle","#CCF"},
+    {"Orchid","#D7D"},         {"Plum","#DAD"},         {"Thistle","#D9F"},
 
-    {"深品红","#606"}, {"品红色","#F0F"},      {"艳粉色","#F4A"},
-    {"粉色","#F8A"},         {"浅粉色","#FCE"},
+    // Magentas & Pinks
+    {"Dark Magenta","#606"}, {"Magenta","#F0F"},        {"Fuchsia","#F09"},
+    {"Hot Pink","#F4A"},     {"Rose","#F69"},           {"Pink","#F8A"},
+    {"Dusty Rose","#C89"},   {"Petal","#F9C"},          {"Baby Pink","#FBD"},
+    {"Light Pink","#FCE"},   {"Blush","#FDE"},
 
-    {"深棕色","#321"},   {"棕色","#642"},        {"浅棕色","#A75"},
-    {"棕褐色","#DB8"},
+    // Browns
+    {"Dark Brown","#321"},   {"Brown","#642"},          {"Muted Mauve","#755"},
+    {"Caramel","#B73"},      {"Sienna","#A53"},         {"Light Brown","#A75"},
+    {"Taupe","#A98"},        {"Sand","#CB8"},           {"Tan","#DB8"},
+    {"Khaki","#FE9"},
 };
 
 // =============================================================================
@@ -443,6 +508,7 @@ public:
 
         for (const auto& option : alphaOptions) {
             auto* alphaItem = new tsl::elm::MiniListItem(option.first);
+            alphaItem->setRadioSelector();
             if (!currentAlpha.empty() && currentAlpha[0] == option.second)
                 selectItem(lastSelectedListItem, alphaItem, ult::CHECKMARK_SYMBOL);
             alphaItem->setClickListener([this, alphaItem, option, section](uint64_t keys) {
@@ -459,7 +525,7 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame("透明度", list);
+        return makeFrame("Alpha", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -489,32 +555,32 @@ struct DTCFormatCategory {
 };
 
 static const std::vector<DTCFormatCategory> dtcFormatCategories = {
-    {"时间", {
-        {"24小时制",    "%H:%M"},
-        {"24小时制(秒)", "%H:%M:%S"},
-        {"12小时制",    "%l:%M %p"},
-        {"12小时制(秒)", "%l:%M:%S %p"}
+    {"Time", {
+        {"Time 24h",    "%H:%M"},
+        {"Time 24h(s)", "%H:%M:%S"},
+        {"Time 12h",    "%l:%M %p"},
+        {"Time 12h(s)", "%l:%M:%S %p"}
     }},
-    {"日期", {
-        {"美式日期(横线)",   "%m-%d-%Y"},
-        {"美式日期(斜线)",  "%m/%d/%Y"},
-        {"欧式日期(横线)",   "%d-%m-%Y"},
-        {"欧式日期(斜线)",  "%d/%m/%Y"},
-        {"ISO日期",       "%Y-%m-%d"},
-        {"ISO日期(斜线)", "%Y/%m/%d"},
-        {"美式短日期",  "%m/%d/%y"},
-        {"欧式短日期",  "%d/%m/%y"},
-        {"紧凑日期",   "%Y%m%d"}
+    {"Date", {
+        {"Date US Dash",   "%m-%d-%Y"},
+        {"Date US Slash",  "%m/%d/%Y"},
+        {"Date EU Dash",   "%d-%m-%Y"},
+        {"Date EU Slash",  "%d/%m/%Y"},
+        {"Date ISO",       "%Y-%m-%d"},
+        {"Date ISO Slash", "%Y/%m/%d"},
+        {"Date Short US",  "%m/%d/%y"},
+        {"Date Short EU",  "%d/%m/%y"},
+        {"Date Compact",   "%Y%m%d"}
     }},
-    {"星期与月份", {
-        {"星期+短日期", "%a, %b %d"},
-        {"星期+完整日期",  "%A, %B %d"},
-        {"星期(缩写)",    "%a"},
-        {"星期(全称)",     "%A"},
-        {"月份(缩写)",      "%b"},
-        {"月份(全称)",       "%B"},
-        {"月份+年份",     "%b %Y"},
-        {"年中日序",      "%j"},
+    {"Day & Month", {
+        {"Day + Date Short", "%a, %b %d"},
+        {"Day + Date Full",  "%A, %B %d"},
+        {"Weekday Short",    "%a"},
+        {"Weekday Full",     "%A"},
+        {"Month Short",      "%b"},
+        {"Month Full",       "%B"},
+        {"Month + Year",     "%b %Y"},
+        {"Day of Year",      "%j"},
     }},
 };
 
@@ -543,7 +609,7 @@ public:
         auto* list = new tsl::elm::List();
         const std::string section = modeToSection(modeName);
         const std::string iniKey  = (slot == 2) ? "dtc_format_2" : "dtc_format_1";
-        const std::string title   = (slot == 2) ? "DTC格式 2" : "DTC格式 1";
+        const std::string title   = (slot == 2) ? "DTC Format 2" : "DTC Format 1";
         //const bool isMiniMode     = (modeName == "Mini");
 
         std::string currentValue = ult::parseValueFromIniSection(configIniPath, section, iniKey);
@@ -553,8 +619,9 @@ public:
         }
 
         if (slot == 2) {
-            list->addItem(new tsl::elm::CategoryHeader("无"));
+            list->addItem(new tsl::elm::CategoryHeader("None"));
             auto* noneItem = new tsl::elm::MiniListItem(ult::OPTION_SYMBOL);
+            noneItem->setRadioSelector();
             if (currentValue == ult::OPTION_SYMBOL)
                 selectItem(lastSelectedListItem, noneItem, ult::CHECKMARK_SYMBOL);
             noneItem->setClickListener([this, noneItem, section](uint64_t keys) {
@@ -572,6 +639,7 @@ public:
             list->addItem(new tsl::elm::CategoryHeader(cat.header));
             for (const auto& entry : cat.entries) {
                 auto* formatItem = new tsl::elm::MiniListItem(entry.label);
+                formatItem->setRadioSelector();
                 if (entry.fmt == currentValue)
                     selectItem(lastSelectedListItem, formatItem, ult::CHECKMARK_SYMBOL);
                 const std::string capturedFmt = entry.fmt;
@@ -596,7 +664,7 @@ public:
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = (slot == 2) ? "DTC格式 2" : "DTC格式 1";
+            jumpItemName = (slot == 2) ? "DTC Format 2" : "DTC Format 1";
             jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
@@ -636,53 +704,63 @@ public:
         auto* list = new tsl::elm::List();
 
         if (flags.isFPSGraph) {
-            list->addItem(new tsl::elm::CategoryHeader("全局"));
-            addToggle(list, "禁用截图", "disable_screenshots", false);
-            addToggle(list, "信息",                "show_info",           true);
-            addToggle(list, "动态温度颜色", "use_dynamic_colors",  true);
-            addToggle(list, "整数FPS",         "integer_fps",         true);
+            list->addItem(new tsl::elm::CategoryHeader("Global"));
+            addToggle(list, "Disable Screenshots", "disable_screenshots", false);
+            addToggle(list, "Info",                "show_info",           true);
+            addToggle(list, "Dynamic Temps", "use_dynamic_colors",  true);
+            addToggle(list, "Integer FPS",         "integer_fps",         true);
+            addToggle(list, "Border",         "use_border",       true);
+            addToggle(list, "Dynamic Border", "dynamic_border",   true);
+            addToggle(list, "CW Border Flow", "cw_border_flow",   true);
+            addToggle(list, "Graph Border",   "use_graph_border", false);
+            addToggle(list, "Graph Background", "graph_background", false);
 
         } else if (flags.isFull) {
-            list->addItem(new tsl::elm::CategoryHeader("全局"));
-            addToggle(list, "禁用截图", "disable_screenshots", false);
-            addToggle(list, "实时频率",    "show_real_freqs",     true);
-            addToggle(list, "目标频率",  "show_target_freqs",   true);
-            addToggle(list, "频率差值",    "show_deltas",         true);
+            list->addItem(new tsl::elm::CategoryHeader("Global"));
+            addToggle(list, "Disable Screenshots", "disable_screenshots", false);
+            addToggle(list, "Real Frequencies",    "show_real_freqs",     true);
+            addToggle(list, "Target Frequencies",  "show_target_freqs",   true);
+            addToggle(list, "Frequency Deltas",    "show_deltas",         true);
             addToggle(list, "FPS",                 "show_fps",            true);
-            addToggle(list, "分辨率",                 "show_res",            true);
-            addToggle(list, "读取速度",          "show_read_speed",     true);
-            addToggle(list, "动态温度颜色", "use_dynamic_colors",  true);
+            addToggle(list, "RES",                 "show_res",            true);
+            addToggle(list, "Read Speed",          "show_read_speed",     true);
+            addToggle(list, "Dynamic Temps", "use_dynamic_colors",  true);
 
         } else if (flags.isMini || flags.isMicro) {
-            list->addItem(new tsl::elm::CategoryHeader("全局"));
-            addToggle(list, "1080p 底座模式",   "use_1080p_docked",   true);
-            addToggle(list, "禁用截图", "disable_screenshots", false);
+            list->addItem(new tsl::elm::CategoryHeader("Global"));
+            addToggle(list, "1080p Docked",   "use_1080p_docked",   true);
+            addToggle(list, "Disable Screenshots", "disable_screenshots", false);
 
             if (flags.isMini)
-                addToggle(list, "标签", "show_labels", true);
+                addToggle(list, "Labels", "show_labels", true);
 
-            addToggle(list, "实时频率",    "real_freqs",          true);
-            addToggle(list, "实时电压",       "real_volts",          true);
-            addToggle(list, "动态温度颜色", "use_dynamic_colors",  true);
+            addToggle(list, "Real Frequencies",    "real_freqs",          true);
+            addToggle(list, "Real Voltages",       "real_volts",          true);
+            addToggle(list, "Dynamic Temps", "use_dynamic_colors",  true);
+            if (flags.isMini) {
+                addToggle(list, "Border",         "use_border",      true);
+                addToggle(list, "Dynamic Border", "dynamic_border",  true);
+                addToggle(list, "CW Border Flow", "cw_border_flow",  true);
+            }
 
             list->addItem(new tsl::elm::CategoryHeader("CPU"));
-            addToggle(list, "完整CPU",              "show_full_cpu",              true);
-            addToggle(list, "完整CPU(#0-2最高)", "show_full_cpu_max_core_012", flags.isMini);
-            addToggle(list, "堆叠完整CPU",      "show_stacked_full_cpu",      flags.isMicro);
-            addToggle(list, "CPU温度",              "show_cpu_temp",              flags.isMicro);
-            addToggle(list, "堆叠CPU温度",      "show_stacked_cpu_temp",      true);
-            addToggle(list, "电压后置",        "voltage_at_end_cpu",         flags.isMicro);
+            addToggle(list, "Full CPU",              "show_full_cpu",              true);
+            addToggle(list, "Full CPU Max Core 0-2", "show_full_cpu_max_core_012", flags.isMini);
+            addToggle(list, "Stacked Full CPU",      "show_stacked_full_cpu",      true);
+            addToggle(list, "CPU Temp",              "show_cpu_temp",              flags.isMicro);
+            addToggle(list, "Stacked CPU Temp",      "show_stacked_cpu_temp",      true);
+            addToggle(list, "Voltage At End",        "voltage_at_end_cpu",         flags.isMicro);
 
             list->addItem(new tsl::elm::CategoryHeader("GPU"));
-            addToggle(list, "GPU温度",         "show_gpu_temp",         flags.isMicro);
-            addToggle(list, "堆叠GPU温度", "show_stacked_gpu_temp", true);
-            addToggle(list, "电压后置",   "voltage_at_end_gpu",    true);
+            addToggle(list, "GPU Temp",         "show_gpu_temp",         flags.isMicro);
+            addToggle(list, "Stacked GPU Temp", "show_stacked_gpu_temp", true);
+            addToggle(list, "Voltage At End",   "voltage_at_end_gpu",    true);
 
             list->addItem(new tsl::elm::CategoryHeader("RAM"));
-            addToggle(list, "RAM带宽",         "show_ram_bandwidth",               true);
-            addToggle(list, "堆叠RAM带宽", "show_stacked_ram_bandwidth",       true);
-            addToggle(list, "RAM负载 CPU/GPU", "show_RAM_load_CPU_GPU",                 false);
-            addToggle(list, "堆叠RAM负载 CPU/GPU", "show_stacked_ram_load_cpu_gpu", true);
+            addToggle(list, "RAM Bandwidth",         "show_ram_bandwidth",               true);
+            addToggle(list, "Stacked RAM Bandwidth", "show_stacked_ram_bandwidth",       true);
+            addToggle(list, "RAM Load CPU/GPU", "show_RAM_load_CPU_GPU",                 false);
+            addToggle(list, "Stacked RAM Load CPU/GPU", "show_stacked_ram_load_cpu_gpu", true);
 
             if (isMariko)
                 addToggle(list, "VDD2", "show_vdd2", true);
@@ -690,18 +768,18 @@ public:
             addToggle(list, "VDDQ", "show_vddq", flags.isMini);
 
             if (isMariko)
-                addToggle(list, "堆叠 VDD2/VDDQ", "show_stacked_vddq", true);
+                addToggle(list, "Stacked VDD2/VDDQ", "show_stacked_vddq", true);
 
-            addToggle(list, "RAM温度",         "show_ram_temp",         flags.isMicro);
-            addToggle(list, "堆叠RAM温度", "show_stacked_ram_temp", true);
-            addToggle(list, "电压后置",   "voltage_at_end_ram",    flags.isMicro);
+            addToggle(list, "RAM Temp",         "show_ram_temp",         flags.isMicro);
+            addToggle(list, "Stacked RAM Temp", "show_stacked_ram_temp", true);
+            addToggle(list, "Voltage At End",   "voltage_at_end_ram",    flags.isMicro);
 
             list->addItem(new tsl::elm::CategoryHeader("TMP"));
             {
                 // Mutual-exclusivity pair
-                auto* compTemps   = new tsl::elm::MiniToggleListItem("CPU/GPU/RAM 温度",
+                auto* compTemps   = new tsl::elm::MiniToggleListItem("CPU/GPU/RAM Temps",
                     readBool(section, "show_component_temps", true));
-                auto* socPcbTemps = new tsl::elm::MiniToggleListItem("SOC/PCB/Skin 温度",
+                auto* socPcbTemps = new tsl::elm::MiniToggleListItem("SOC/PCB/Skin Temps",
                     readBool(section, "show_soc_pcb_skin_temps", true));
 
                 compTemps->setStateChangedListener([this, compTemps, socPcbTemps](bool state) {
@@ -726,44 +804,50 @@ public:
                 list->addItem(socPcbTemps);
 
                 if (flags.isMicro)
-                    addToggle(list, "堆叠温度", "show_stacked_temps", true);
+                    addToggle(list, "Stacked Temps", "show_stacked_temps", true);
             }
 
-            addToggle(list, "SOC电压",     "show_soc_voltage",     true);
-            addToggle(list, "堆叠风扇/SOC", "show_stacked_fan_soc", true);
-            addToggle(list, "电压后置",  "voltage_at_end_tmp",   true);
+            addToggle(list, "SOC Voltage",     "show_soc_voltage",     true);
+            addToggle(list, "Stacked Fan/SOC", "show_stacked_fan_soc", true);
+            addToggle(list, "Voltage At End",  "voltage_at_end_tmp",   true);
 
-            list->addItem(new tsl::elm::CategoryHeader("分辨率"));
-            addToggle(list, "完整分辨率", "show_full_res", true);
-            addToggle(list, "仅主屏",    "show_primary_res", flags.isMicro);
+            list->addItem(new tsl::elm::CategoryHeader("RES"));
+            addToggle(list, "Full Resolution", "show_full_res", true);
+            addToggle(list, "Primary Only",    "show_primary_res", flags.isMicro);
 
             list->addItem(new tsl::elm::CategoryHeader("FPS"));
-            addToggle(list, "整数FPS", "integer_fps", true);
-            addToggle(list, "使用FPS图表", "use_fps_graph", false);
+            addToggle(list, "Integer FPS", "integer_fps", true);
+            addToggle(list, "Use FPS Graph", "use_fps_graph", false);
 
-            list->addItem(new tsl::elm::CategoryHeader("电池"));
-            addToggle(list, "反转电池显示", "invert_battery_display", true);
-            addToggle(list, "堆叠", "show_stacked_bat", flags.isMicro);
+            list->addItem(new tsl::elm::CategoryHeader("BAT"));
+            addToggle(list, "Invert Battery Display", "invert_battery_display", true);
+            addToggle(list, "Stacked", "show_stacked_bat", flags.isMicro);
 
             list->addItem(new tsl::elm::CategoryHeader("DTC"));
-            addToggle(list, "使用DTC符号", "use_dtc_symbol",   true);
-            addToggle(list, "堆叠",        "show_stacked_dtc", flags.isMicro);
+            addToggle(list, "Use DTC Symbol", "use_dtc_symbol",   true);
+            addToggle(list, "Stacked",        "show_stacked_dtc", flags.isMicro);
 
         } else if (flags.isGameRes) {
-            list->addItem(new tsl::elm::CategoryHeader("全局"));
-            addToggle(list, "禁用截图", "disable_screenshots", false);
+            list->addItem(new tsl::elm::CategoryHeader("Global"));
+            addToggle(list, "Disable Screenshots", "disable_screenshots", false);
+            addToggle(list, "Border",         "use_border",      true);
+            addToggle(list, "Dynamic Border", "dynamic_border",  true);
+            addToggle(list, "CW Border Flow", "cw_border_flow",  true);
 
         } else if (flags.isFPSCounter) {
-            list->addItem(new tsl::elm::CategoryHeader("全局"));
-            addToggle(list, "1080p 底座模式",   "use_1080p_docked",   true);
-            addToggle(list, "禁用截图", "disable_screenshots", false);
-            addToggle(list, "整数FPS",         "integer_fps",         true);
+            list->addItem(new tsl::elm::CategoryHeader("Global"));
+            addToggle(list, "1080p Docked",   "use_1080p_docked",   true);
+            addToggle(list, "Disable Screenshots", "disable_screenshots", false);
+            addToggle(list, "Integer FPS",         "integer_fps",         true);
+            addToggle(list, "Border",         "use_border",      true);
+            addToggle(list, "Dynamic Border", "dynamic_border",  true);
+            addToggle(list, "CW Border Flow", "cw_border_flow",  true);
         }
 
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
         clearJump();
 
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -791,8 +875,8 @@ public:
     SampleRateConfig(const std::string& mode) : modeName(mode), flags(mode) {
         const std::string section = modeToSection(mode);
         const std::string rrVal = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 5 : (flags.isMini ? 30 : 3));
-        const int defaultSampleRate = (flags.isFPSGraph || flags.isMini) ? 3 : defaultRate;
+        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
+        const int defaultSampleRate = (flags.isFPSGraph ? 3 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 2 : defaultRate)));
         maxRate = rrVal.empty() ? defaultRate : std::clamp(atoi(rrVal.c_str()), 1, 60);
         const std::string srVal = ult::parseValueFromIniSection(configIniPath, section, "sample_rate");
         currentRate = srVal.empty() ? std::min(defaultSampleRate, maxRate) : std::clamp(atoi(srVal.c_str()), 1, maxRate);
@@ -801,13 +885,14 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("采样率"));
+        list->addItem(new tsl::elm::CategoryHeader("Sample Rate"));
 
         const std::string section = modeToSection(modeName);
         static const int rates[] = {1, 2, 3, 5, 10, 15, 30, 60};
         for (int rate : rates) {
             if (rate > maxRate) break;
             auto* rateItem = new tsl::elm::MiniListItem(std::to_string(rate) + " Hz");
+            rateItem->setRadioSelector();
             if (rate == currentRate)
                 selectItem(lastSelectedListItem, rateItem, ult::CHECKMARK_SYMBOL);
             rateItem->setClickListener([this, rateItem, rate, section](uint64_t keys) {
@@ -822,14 +907,14 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeName + " " + std::string(ult::DIVIDER_SYMBOL) + " 配置", list);
+        return makeFrame(modeName + " " + std::string(ult::DIVIDER_SYMBOL) + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = "采样率"; jumpItemValue = ""; jumpItemExactMatch = false;
+            jumpItemName = "Sample Rate"; jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -850,19 +935,20 @@ public:
     RefreshRateConfig(const std::string& mode) : modeName(mode), flags(mode) {
         const std::string section = modeToSection(mode);
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 5 : (flags.isMini ? 30 : 3));
+        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
         currentRate = value.empty() ? defaultRate : std::clamp(atoi(value.c_str()), 1, 60);
     }
     ~RefreshRateConfig() { lastSelectedListItem = nullptr; }
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("刷新率"));
+        list->addItem(new tsl::elm::CategoryHeader("Refresh Rate"));
 
         const std::string section = modeToSection(modeName);
         static const int rates[] = {1, 2, 3, 5, 10, 15, 30, 60};
         for (int rate : rates) {
             auto* rateItem = new tsl::elm::MiniListItem(std::to_string(rate) + " Hz");
+            rateItem->setRadioSelector();
             if (rate == currentRate)
                 selectItem(lastSelectedListItem, rateItem, ult::CHECKMARK_SYMBOL);
             rateItem->setClickListener([this, rateItem, rate, section](uint64_t keys) {
@@ -877,14 +963,14 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = "刷新率"; jumpItemValue = ""; jumpItemExactMatch = false;
+            jumpItemName = "Refresh Rate"; jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -911,10 +997,11 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("模式快捷键"));
+        list->addItem(new tsl::elm::CategoryHeader("Mode Combo"));
 
         {
             auto* noneItem = new tsl::elm::ListItem(ult::OPTION_SYMBOL);
+            noneItem->setRadioSelector();
             if (currentCombo.empty())
                 selectItem(lastSelectedListItem, noneItem, ult::CHECKMARK_SYMBOL);
             noneItem->setClickListener([this, noneItem](uint64_t keys) -> bool {
@@ -939,6 +1026,7 @@ public:
             ult::convertComboToUnicode(display);
 
             auto* item = new tsl::elm::ListItem(display);
+            item->setRadioSelector();
             if (currentKeys != 0 && comboKeys == currentKeys)
                 selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
 
@@ -955,14 +1043,14 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = "模式快捷键"; jumpItemValue = ""; jumpItemExactMatch = false;
+            jumpItemName = "Mode Combo"; jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -983,16 +1071,17 @@ public:
     FramePaddingConfig(const std::string& mode) : modeName(mode) {
         section = modeToSection(mode);
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "frame_padding");
-        currentPadding = value.empty() ? 4 : std::clamp(atoi(value.c_str()), 0, 14);
+        currentPadding = value.empty() ? 0 : std::clamp(atoi(value.c_str()), 0, 14);
     }
     ~FramePaddingConfig() { lastSelectedListItem = nullptr; }
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("边框内边距"));
+        list->addItem(new tsl::elm::CategoryHeader("Frame Padding"));
 
         for (int padding = 0; padding <= 14; ++padding) {
             auto* paddingItem = new tsl::elm::MiniListItem(std::to_string(padding) + " px");
+            paddingItem->setRadioSelector();
             if (padding == currentPadding)
                 selectItem(lastSelectedListItem, paddingItem, ult::CHECKMARK_SYMBOL);
             paddingItem->setClickListener([this, paddingItem, padding](uint64_t keys) {
@@ -1007,15 +1096,67 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
         if (keysDown & KEY_B) {
             triggerExitFeedback();
-            jumpItemName = "边框内边距"; jumpItemValue = ""; jumpItemExactMatch = false;
-            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
+            jumpItemName = "Frame Padding"; jumpItemValue = ""; jumpItemExactMatch = false;
+            tsl::goBack();
+            return true;
+        }
+        return false;
+    }
+};
+
+// Border thickness for the configurable Switch 2 frame border. Stored in raw px;
+// a radio-list dropdown like Frame Padding (not a slider). Range 0..14 px.
+class BorderThicknessConfig : public tsl::Gui {
+private:
+    std::string modeName;
+    std::string section;
+    int currentThickness;
+
+public:
+    BorderThicknessConfig(const std::string& mode) : modeName(mode) {
+        section = modeToSection(mode);
+        const std::string value = ult::parseValueFromIniSection(configIniPath, section, "border_thickness");
+        currentThickness = value.empty() ? 3 : std::clamp(atoi(value.c_str()), 1, 10);
+    }
+    ~BorderThicknessConfig() { lastSelectedListItem = nullptr; }
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader("Border Thickness"));
+
+        for (int thickness = 1; thickness <= 10; ++thickness) {
+            auto* item = new tsl::elm::MiniListItem(std::to_string(thickness) + " px");
+            item->setRadioSelector();
+            if (thickness == currentThickness)
+                selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
+            item->setClickListener([this, item, thickness](uint64_t keys) {
+                if (keys & KEY_A) {
+                    ult::setIniFileValue(configIniPath, section, "border_thickness", std::to_string(thickness));
+                    selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
+                    return true;
+                }
+                return false;
+            });
+            list->addItem(item);
+        }
+
+        list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
+    }
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        if (keysDown & KEY_B) {
+            triggerExitFeedback();
+            jumpItemName = "Border Thickness"; jumpItemValue = ""; jumpItemExactMatch = false;
+            tsl::goBack();
             return true;
         }
         return false;
@@ -1070,6 +1211,7 @@ public:
         list->addItem(new tsl::elm::CategoryHeader(headerLabel));
         for (int p = MIN_P; p <= MAX_P; p += STEP_P) {
             auto* item = new tsl::elm::MiniListItem(formatLabel(p));
+            item->setRadioSelector();
             if (p == currentPadding)
                 selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
             item->setClickListener([this, item, p](uint64_t keys) {
@@ -1083,7 +1225,7 @@ public:
             list->addItem(item);
         }
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame("Micro " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame("Micro " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1091,7 +1233,7 @@ public:
         if (keysDown & KEY_B) {
             triggerExitFeedback();
             jumpItemName = jumpLabel; jumpItemValue = ""; jumpItemExactMatch = false;
-            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), "Micro");
+            tsl::goBack();
             return true;
         }
         return false;
@@ -1100,29 +1242,29 @@ public:
 
 class MicroHPaddingConfig : public MicroPaddingConfigBase<14, 2, 30, 1> {
 public:
-    MicroHPaddingConfig() : MicroPaddingConfigBase("horizontal_padding", "水平内边距", "水平内边距") {}
+    MicroHPaddingConfig() : MicroPaddingConfigBase("horizontal_padding", "Horizontal Padding", "Horizontal Padding") {}
 };
 
 class MicroVPaddingConfig : public MicroPaddingConfigBase<8, 2, 30, 1> {
 public:
-    MicroVPaddingConfig() : MicroPaddingConfigBase("vertical_padding", "垂直内边距", "垂直内边距") {}
+    MicroVPaddingConfig() : MicroPaddingConfigBase("vertical_padding", "Vertical Padding", "Vertical Padding") {}
 };
 
 class MicroStackedSpacingConfig : public MicroPaddingConfigBase<4, 0, 30, 1> {
 public:
-    MicroStackedSpacingConfig() : MicroPaddingConfigBase("stacked_spacing", "堆叠间距", "堆叠间距") {}
+    MicroStackedSpacingConfig() : MicroPaddingConfigBase("stacked_spacing", "Stacked Spacing", "Stacked Spacing") {}
 };
 
 class MicroLabelPaddingConfig : public MicroPaddingConfigBase<14, 2, 30, 1> {
 public:
-    MicroLabelPaddingConfig() : MicroPaddingConfigBase("label_padding", "标签内边距", "标签内边距") {}
+    MicroLabelPaddingConfig() : MicroPaddingConfigBase("label_padding", "Label Padding", "Label Padding") {}
 };
 
 class MicroElementPaddingConfig : public MicroPaddingConfigBase<50, 10, 100, 10> {
 protected:
     std::string formatLabel(int tenths) const override { return formatSpWhole(tenths); }
 public:
-    MicroElementPaddingConfig() : MicroPaddingConfigBase("element_padding", "元素内边距", "元素内边距") {}
+    MicroElementPaddingConfig() : MicroPaddingConfigBase("element_padding", "Element Padding", "Element Padding") {}
 };
 
 // =============================================================================
@@ -1162,6 +1304,7 @@ public:
         list->addItem(new tsl::elm::CategoryHeader(headerLabel));
         for (int p = MIN_P; p <= MAX_P; p += STEP_P) {
             auto* item = new tsl::elm::MiniListItem(formatLabel(p));
+            item->setRadioSelector();
             if (p == currentPadding)
                 selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
             item->setClickListener([this, item, p](uint64_t keys) {
@@ -1175,7 +1318,7 @@ public:
             list->addItem(item);
         }
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame("Mini " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame("Mini " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1183,36 +1326,304 @@ public:
         if (keysDown & KEY_B) {
             triggerExitFeedback();
             jumpItemName = jumpLabel; jumpItemValue = ""; jumpItemExactMatch = false;
-            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), "Mini");
+            tsl::goBack();
             return true;
         }
         return false;
     }
 };
 
-class MiniHPaddingConfig : public MiniPaddingConfigBase<30, 2, 60, 1> {
+class MiniHPaddingConfig : public MiniPaddingConfigBase<36, 2, 60, 1> {
 public:
-    MiniHPaddingConfig() : MiniPaddingConfigBase("horizontal_padding", "水平内边距", "水平内边距") {}
+    MiniHPaddingConfig() : MiniPaddingConfigBase("horizontal_padding", "Horizontal Padding", "Horizontal Padding") {}
 };
 
-class MiniVPaddingConfig : public MiniPaddingConfigBase<30, 2, 60, 1> {
+class MiniVPaddingConfig : public MiniPaddingConfigBase<36, 2, 60, 1> {
 public:
-    MiniVPaddingConfig() : MiniPaddingConfigBase("vertical_padding", "垂直内边距", "垂直内边距") {}
+    MiniVPaddingConfig() : MiniPaddingConfigBase("vertical_padding", "Vertical Padding", "Vertical Padding") {}
 };
 
 class MiniSpacingConfig : public MiniPaddingConfigBase<15, 2, 30, 1> {
 public:
-    MiniSpacingConfig() : MiniPaddingConfigBase("spacing", "间距", "间距") {}
+    MiniSpacingConfig() : MiniPaddingConfigBase("spacing", "Spacing", "Spacing") {}
 };
 
 class MiniStackedSpacingConfig : public MiniPaddingConfigBase<4, 0, 30, 1> {
 public:
-    MiniStackedSpacingConfig() : MiniPaddingConfigBase("stacked_spacing", "堆叠间距", "堆叠间距") {}
+    MiniStackedSpacingConfig() : MiniPaddingConfigBase("stacked_spacing", "Stacked Spacing", "Stacked Spacing") {}
 };
 
-class MiniCornerRadiusConfig : public MiniPaddingConfigBase<40, 0, 80, 2> {
+class MiniCornerRadiusConfig : public MiniPaddingConfigBase<36, 0, 80, 2> {
 public:
-    MiniCornerRadiusConfig() : MiniPaddingConfigBase("corner_radius", "圆角半径", "圆角半径") {}
+    MiniCornerRadiusConfig() : MiniPaddingConfigBase("corner_radius", "Corner Radius", "Corner Radius") {}
+};
+
+// Mode-generic Corner Radius (sp) config for modes that don't use the Mini-only
+// MiniCornerRadiusConfig (FPS Graph / FPS Counter / Game Resolutions). Writes
+// corner_radius (tenths of a space, 0..80 step 2) to the mode's own section.
+class CornerRadiusConfig : public tsl::Gui {
+private:
+    std::string modeName;
+    std::string section;
+    int currentRadius;
+
+public:
+    CornerRadiusConfig(const std::string& mode) : modeName(mode) {
+        section = modeToSection(mode);
+        const std::string value = ult::parseValueFromIniSection(configIniPath, section, "corner_radius");
+        currentRadius = value.empty() ? 36 : std::clamp(atoi(value.c_str()), 0, 80);
+        currentRadius = ((currentRadius + 1) / 2) * 2;   // snap to step 2
+        currentRadius = std::clamp(currentRadius, 0, 80);
+    }
+    ~CornerRadiusConfig() { lastSelectedListItem = nullptr; }
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader("Corner Radius"));
+        for (int p = 0; p <= 80; p += 2) {
+            auto* item = new tsl::elm::MiniListItem(formatSpTenths(p));
+            item->setRadioSelector();
+            if (p == currentRadius)
+                selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
+            item->setClickListener([this, item, p](uint64_t keys) {
+                if (keys & KEY_A) {
+                    ult::setIniFileValue(configIniPath, section, "corner_radius", std::to_string(p));
+                    selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
+                    return true;
+                }
+                return false;
+            });
+            list->addItem(item);
+        }
+        list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
+    }
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        if (keysDown & KEY_B) {
+            triggerExitFeedback();
+            jumpItemName = "Corner Radius"; jumpItemValue = ""; jumpItemExactMatch = false;
+            tsl::goBack();
+            return true;
+        }
+        return false;
+    }
+};
+
+// =============================================================================
+// Paddings Configuration (hub — one dropdown for all per-mode padding options)
+// =============================================================================
+class PaddingsConfig : public tsl::Gui {
+private:
+    std::string modeName;
+    ModeFlags   flags;
+
+    // ---- value helpers (mirrors ConfiguratorOverlay getters) ----------------
+    int getFramePadding() const {
+        const std::string section = modeToSection(modeName);
+        const std::string v = ult::parseValueFromIniSection(configIniPath, section, "frame_padding");
+        return v.empty() ? 0 : std::clamp(atoi(v.c_str()), 0, 14);
+    }
+    int getBorderThickness() const {
+        const std::string section = modeToSection(modeName);
+        const std::string v = ult::parseValueFromIniSection(configIniPath, section, "border_thickness");
+        return v.empty() ? 3 : std::clamp(atoi(v.c_str()), 0, 14);
+    }
+    int getCornerRadius() const {
+        const std::string section = modeToSection(modeName);
+        const std::string v = ult::parseValueFromIniSection(configIniPath, section, "corner_radius");
+        return v.empty() ? 36 : std::clamp(atoi(v.c_str()), 0, 80);
+    }
+    int getMicroHPadding() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "micro", "horizontal_padding");
+        return v.empty() ? 14 : std::clamp(atoi(v.c_str()), 2, 30);
+    }
+    int getMicroVPadding() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "micro", "vertical_padding");
+        return v.empty() ? 8 : std::clamp(atoi(v.c_str()), 2, 30);
+    }
+    int getMicroStackedSpacing() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "micro", "stacked_spacing");
+        int val = v.empty() ? 4 : std::clamp(atoi(v.c_str()), 0, 30);
+        val = 0 + ((val - 0 + (1 / 2)) / 1) * 1;
+        return std::clamp(val, 0, 30);
+    }
+    int getMicroLabelPadding() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "micro", "label_padding");
+        return v.empty() ? 14 : std::clamp(atoi(v.c_str()), 2, 30);
+    }
+    int getMicroElementPadding() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "micro", "element_padding");
+        int val = v.empty() ? 50 : std::clamp(atoi(v.c_str()), 10, 100);
+        val = 10 + ((val - 10 + (10 / 2)) / 10) * 10;
+        return std::clamp(val, 10, 100);
+    }
+    int getMiniHPadding() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "mini", "horizontal_padding");
+        return v.empty() ? 36 : std::clamp(atoi(v.c_str()), 2, 60);
+    }
+    int getMiniVPadding() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "mini", "vertical_padding");
+        return v.empty() ? 36 : std::clamp(atoi(v.c_str()), 2, 60);
+    }
+    int getMiniSpacing() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "mini", "spacing");
+        return v.empty() ? 15 : std::clamp(atoi(v.c_str()), 2, 30);
+    }
+    int getMiniStackedSpacing() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "mini", "stacked_spacing");
+        int val = v.empty() ? 4 : std::clamp(atoi(v.c_str()), 0, 30);
+        val = 0 + ((val - 0 + (1 / 2)) / 1) * 1;
+        return std::clamp(val, 0, 30);
+    }
+    int getMiniCornerRadius() const {
+        const std::string v = ult::parseValueFromIniSection(configIniPath, "mini", "corner_radius");
+        int val = v.empty() ? 36 : std::clamp(atoi(v.c_str()), 0, 80);
+        val = 0 + ((val - 0 + (2 / 2)) / 2) * 2;
+        return std::clamp(val, 0, 80);
+    }
+
+public:
+    PaddingsConfig(const std::string& mode) : modeName(mode), flags(mode) {}
+    ~PaddingsConfig() { lastSelectedListItem = nullptr; }
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader("Paddings"));
+
+        // Frame Padding — Mini / Game Resolutions / FPS Counter / FPS Graph
+        if (flags.isMini || flags.isGameRes || flags.isFPSCounter || flags.isFPSGraph) {
+            auto* item = new tsl::elm::ListItem("Frame Padding");
+            item->setValue(std::to_string(getFramePadding()) + " px");
+            item->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<FramePaddingConfig>(modeName); return true; }
+                return false;
+            });
+            list->addItem(item);
+
+            // Border Thickness - same modes carry the configurable frame border.
+            auto* btItem = new tsl::elm::ListItem("Border Thickness");
+            btItem->setValue(std::to_string(getBorderThickness()) + " px");
+            btItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<BorderThicknessConfig>(modeName); return true; }
+                return false;
+            });
+            list->addItem(btItem);
+
+            // Corner Radius (sp) for the non-Mini border modes; Mini has its own
+            // entry below via MiniCornerRadiusConfig.
+            if (flags.isGameRes || flags.isFPSCounter || flags.isFPSGraph) {
+                auto* crItem = new tsl::elm::ListItem("Corner Radius");
+                crItem->setValue(formatSpTenths(getCornerRadius()));
+                crItem->setClickListener([this](uint64_t keys) {
+                    if (keys & KEY_A) { tsl::changeTo<CornerRadiusConfig>(modeName); return true; }
+                    return false;
+                });
+                list->addItem(crItem);
+            }
+        }
+
+        // Mini paddings
+        if (flags.isMini) {
+            auto* hItem = new tsl::elm::ListItem("Horizontal Padding");
+            hItem->setValue(formatSpTenths(getMiniHPadding()));
+            hItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MiniHPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(hItem);
+
+            auto* vItem = new tsl::elm::ListItem("Vertical Padding");
+            vItem->setValue(formatSpTenths(getMiniVPadding()));
+            vItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MiniVPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(vItem);
+
+            auto* spItem = new tsl::elm::ListItem("Spacing");
+            spItem->setValue(formatSpTenths(getMiniSpacing()));
+            spItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MiniSpacingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(spItem);
+
+            auto* ssItem = new tsl::elm::ListItem("Stacked Spacing");
+            ssItem->setValue(formatSpTenths(getMiniStackedSpacing()));
+            ssItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MiniStackedSpacingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(ssItem);
+
+            auto* crItem = new tsl::elm::ListItem("Corner Radius");
+            crItem->setValue(formatSpTenths(getMiniCornerRadius()));
+            crItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MiniCornerRadiusConfig>(); return true; }
+                return false;
+            });
+            list->addItem(crItem);
+        }
+
+        // Micro paddings
+        if (flags.isMicro) {
+            auto* hItem = new tsl::elm::ListItem("Horizontal Padding");
+            hItem->setValue(formatSpTenths(getMicroHPadding()));
+            hItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroHPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(hItem);
+
+            auto* vItem = new tsl::elm::ListItem("Vertical Padding");
+            vItem->setValue(formatSpTenths(getMicroVPadding()));
+            vItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroVPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(vItem);
+
+            auto* ssItem = new tsl::elm::ListItem("Stacked Spacing");
+            ssItem->setValue(formatSpTenths(getMicroStackedSpacing()));
+            ssItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroStackedSpacingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(ssItem);
+
+            auto* lItem = new tsl::elm::ListItem("Label Padding");
+            lItem->setValue(formatSpTenths(getMicroLabelPadding()));
+            lItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroLabelPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(lItem);
+
+            auto* eItem = new tsl::elm::ListItem("Element Padding");
+            eItem->setValue(formatSpWhole(getMicroElementPadding()));
+            eItem->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MicroElementPaddingConfig>(); return true; }
+                return false;
+            });
+            list->addItem(eItem);
+        }
+
+        list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration " + ult::DIVIDER_SYMBOL + " Paddings", list);
+    }
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        if (keysDown & KEY_B) {
+            triggerExitFeedback();
+            jumpItemName = "Paddings"; jumpItemValue = ""; jumpItemExactMatch = true;
+            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
+            return true;
+        }
+        return false;
+    }
 };
 
 // =============================================================================
@@ -1230,15 +1641,15 @@ public:
         : modeName(mode), fontType(type), flags(mode) {
         // Build a human-readable title for the header and back-navigation jump.
         if (fontType == "handheld")
-            title = "掌机字号";
+            title = "Handheld Font Size";
         else if (fontType == "docked")
-            title = "底座字号";
+            title = "Docked Font Size";
         else if (fontType == "docked_1080p")
-            title = "1080p底座字号";
+            title = "1080p Docked Font Size";
         else {
             title = fontType;
             title[0] = std::toupper(title[0]);
-            title += " 字号";
+            title += " Font Size";
         }
     }
     ~FontSizeSelector() { lastSelectedListItem = nullptr; }
@@ -1270,6 +1681,7 @@ public:
 
         for (int size = minSize; size <= maxSize; size++) {
             auto* sizeItem = new tsl::elm::MiniListItem(std::to_string(size) + " pt");
+            sizeItem->setRadioSelector();
             if (size == currentSize)
                 selectItem(lastSelectedListItem, sizeItem, ult::CHECKMARK_SYMBOL);
             sizeItem->setClickListener([this, sizeItem, size, keyName, section](uint64_t keys) {
@@ -1284,7 +1696,7 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置 " + ult::DIVIDER_SYMBOL + " 字号", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration " + ult::DIVIDER_SYMBOL + " Font Sizes", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1312,7 +1724,7 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("字号"));
+        list->addItem(new tsl::elm::CategoryHeader("Font Sizes"));
 
         const std::string section = modeToSection(modeName);
         const int defaultSize      = flags.isFPSCounter ? 40 : 15;
@@ -1334,14 +1746,14 @@ public:
             list->addItem(item);
         };
 
-        makeItem("掌机模式",     "handheld_font_size",     "handheld",    defaultSize);
-        makeItem("底座模式",       "docked_font_size",       "docked",      defaultSize);
-        makeItem("1080p底座模式", "docked_1080p_font_size", "docked_1080p", default1080pSize);
+        makeItem("Handheld",     "handheld_font_size",     "handheld",    defaultSize);
+        makeItem("Docked",       "docked_font_size",       "docked",      defaultSize);
+        makeItem("1080p Docked", "docked_1080p_font_size", "docked_1080p", default1080pSize);
 
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
         clearJump();
 
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1377,7 +1789,11 @@ public:
                              key == "plot_background_color")));
         isTextBasedColor  = (key == "text_color" || key == "separator_color" || key == "cat_color" ||
                             key == "cat_color_1" || key == "cat_color_2" ||
-                            (flags.isFPSGraph && (key == "border_color" || key == "max_fps_text_color" ||
+                            key == "border_color" ||
+                            key == "border_wheel_color_1" || key == "border_wheel_color_2" ||
+                            key == "border_wheel_color_3" || key == "border_wheel_color_3_deep" ||
+                            key == "border_wheel_color_4" || key == "border_wheel_color_4_deep" ||
+                            (flags.isFPSGraph && (key == "max_fps_text_color" ||
                              key == "min_fps_text_color" || key == "main_line_color" ||
                              key == "rounded_line_color" || key == "perfect_line_color")));
     }
@@ -1399,6 +1815,7 @@ public:
             const std::string hexRgb = extractColorWithoutAlpha(color.second); // #RGB
             const tsl::Color swatchColor = hexToSwatchColor(hexRgb);
             colorItem->setSwatchColor(swatchColor);
+            colorItem->setRadioLabelSelector();
             colorItem->setValue(COLOR_SWATCH);
 
             const bool isSelected = (hexRgb == currentColorWithoutAlpha);
@@ -1440,7 +1857,7 @@ public:
         }
 
         list->jumpToItem("", _jumpItemValue, false);
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置 " + ult::DIVIDER_SYMBOL + " 颜色", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration " + ult::DIVIDER_SYMBOL + " Colors", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1513,66 +1930,86 @@ private:
         list->addItem(alphaItem);
     }
 
+    // The six Switch 2 frame-border wheel anchor colours (shared by every overlay
+    // that carries the configurable border). Defaults are the muted slate palette.
+    void addBorderWheelColors(tsl::elm::List* list) {
+        addColorItem(list, "Border Wheel 1",      "border_wheel_color_1",      "#0C0F");
+        addColorItem(list, "Border Wheel 2",      "border_wheel_color_2",      "#64FF");
+        addColorItem(list, "Border Wheel 3",      "border_wheel_color_3",      "#08AF");
+        addColorItem(list, "Border Wheel 3 Deep", "border_wheel_color_3_deep", "#657F");
+        addColorItem(list, "Border Wheel 4",      "border_wheel_color_4",      "#A98F");
+        addColorItem(list, "Border Wheel 4 Deep", "border_wheel_color_4_deep", "#C8FF");
+    }
+
 public:
     ColorConfig(const std::string& mode) : modeName(mode), flags(mode) {}
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("颜色"));
+        list->addItem(new tsl::elm::CategoryHeader("Colors"));
 
-        if (!flags.isFull) {
-            addColorWithAlpha(list, "背景颜色", "background_color",       "#000A", "背景透明度");
-            if (flags.isMini || flags.isMicro || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes)
-                addColorWithAlpha(list, "焦点颜色",  "focus_background_color", "#000F", "焦点透明度");
-        } else {
-            addColorWithAlpha(list, "背景颜色", "background_color",       "#000A", "背景透明度");
-        }
+        addColorWithAlpha(list, "Background Color", "background_color",       "#000A", "Background Alpha");
+        if (flags.isMini || flags.isMicro || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes || flags.isFull)
+            addColorWithAlpha(list, "Focus Color",  "focus_background_color", "#000F", "Focus Alpha");
 
-        addColorItem(list, "文本颜色", "text_color", "#FFFF");
+        addColorItem(list, "Text Color", "text_color", "#FFFF");
 
         if (flags.isFPSGraph) {
-            addColorItem(list, "分类颜色", "cat_color", "#2DFF");
+            addColorItem(list, "Category Color", "cat_color", "#2DFF");
 
             struct FPSGraphColorSetting {
                 const char* name; const char* key; const char* def; bool hasAlpha;
             };
             static const FPSGraphColorSetting fpsGraphColors[] = {
-                {"FPS计数器",  "fps_counter_color",  "#2DFF", false},
-                {"图表",        "plot_background_color", "#0007", true},
-                {"边框",       "border_color",        "#2DFF", false},
-                {"虚线",  "dashed_line_color",   "#0AAF", true},
-                {"最高FPS文本", "max_fps_text_color",  "#FFFF", false},
-                {"最低FPS文本", "min_fps_text_color",  "#FFFF", false},
-                {"主线",    "main_line_color",     "#0F0F", false},
-                {"平滑线", "rounded_line_color",  "#0C0F", false},
-                {"理想线", "perfect_line_color",  "#A0FF", false},
+                {"FPS Counter",  "fps_counter_color",  "#2DFF", false},
+                {"Graph",        "plot_background_color", "#0007", true},
+                {"Border",       "border_color",        "#04AF", false},
+                {"Dashed Line",  "dashed_line_color",   "#0AAF", true},
+                {"Max FPS Text", "max_fps_text_color",  "#FFFF", false},
+                {"Min FPS Text", "min_fps_text_color",  "#FFFF", false},
+                {"Main Line",    "main_line_color",     "#0F0F", false},
+                {"Rounded Line", "rounded_line_color",  "#0C0F", false},
+                {"Perfect Line", "perfect_line_color",  "#A0FF", false},
             };
             for (const auto& c : fpsGraphColors) {
                 if (c.hasAlpha)
                     addColorWithAlpha(list,
-                        std::string(c.name) + " 颜色", c.key, c.def,
-                        std::string(c.name) + " 透明度");
+                        std::string(c.name) + " Color", c.key, c.def,
+                        std::string(c.name) + " Alpha");
                 else
-                    addColorItem(list, std::string(c.name) + " 颜色", c.key, c.def);
+                    addColorItem(list, std::string(c.name) + " Color", c.key, c.def);
             }
+            // Switch 2 frame-border wheel colours (the flat "Border" colour is in
+            // the table above and is reused for both the outer frame and the plot).
+            addBorderWheelColors(list);
 
         } else if (flags.isFull) {
-            addColorItem(list, "分类颜色 1", "cat_color_1",    "#8FFF");
-            addColorItem(list, "分类颜色 2", "cat_color_2",    "#2DFF");
-            addColorItem(list, "分隔线颜色",  "separator_color","#888F");
+            addColorItem(list, "Category Color 1", "cat_color_1",    "#8FFF");
+            addColorItem(list, "Category Color 2", "cat_color_2",    "#2DFF");
+            addColorItem(list, "Separator Color",  "separator_color","#2DFF");
 
         } else if (flags.isMini || flags.isMicro) {
-            addColorItem(list, "分类颜色", "cat_color",       "#2DFF");
-            addColorItem(list, "分隔线颜色", "separator_color", "#888F");
+            addColorItem(list, "Category Color", "cat_color",       "#2DFF");
+            addColorItem(list, "Separator Color", "separator_color", "#2DFF");
+            if (flags.isMini) {
+                addColorItem(list, "Border Color", "border_color", "#04AF");
+                addBorderWheelColors(list);
+            }
+
+        } else if (flags.isFPSCounter) {
+            addColorItem(list, "Border Color", "border_color", "#04AF");
+            addBorderWheelColors(list);
 
         } else if (flags.isGameRes) {
-            addColorItem(list, "分类颜色", "cat_color", "#2DFF");
+            addColorItem(list, "Category Color", "cat_color", "#2DFF");
+            addColorItem(list, "Border Color", "border_color", "#04AF");
+            addBorderWheelColors(list);
         }
 
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
         clearJump();
 
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1595,6 +2032,17 @@ private:
     bool isMiniMode;
     std::vector<std::string> elementOrder;
     std::unordered_set<std::string> enabledElements;
+    // Rebuilding the UI (tsl::swapTo) must never happen synchronously from
+    // inside an element's own onClick (which is what setStateChangedListener /
+    // setClickListener fire from). ToggleListItem::onClick keeps touching
+    // `this` after invoking the state-changed listener, so if that listener
+    // destroys the element tree mid-call, the toggle item becomes a dangling
+    // pointer the moment the listener returns -> crash. Instead we just flag
+    // that a rebuild is needed here, and perform the actual swapTo from
+    // handleInput(), which the framework only calls *after* the onClick call
+    // chain has fully unwound for the frame -- the same safe pattern every
+    // other Config screen in this file already uses for KEY_B.
+    bool pendingRebuild = false;
 
 public:
     ShowConfig(const std::string& mode) : modeName(mode) {
@@ -1604,7 +2052,7 @@ public:
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
         list->addItem(new tsl::elm::CategoryHeader(
-            "元素 " + ult::DIVIDER_SYMBOL + " \uE0E3 下移 " + ult::DIVIDER_SYMBOL + " \uE0E2 上移"));
+            "Elements " + ult::DIVIDER_SYMBOL + " \uE0E3 Move Down " + ult::DIVIDER_SYMBOL + " \uE0E2 Move Up"));
 
         const std::string section = isMiniMode ? "mini" : "micro";
         std::string showValue  = ult::parseValueFromIniSection(configIniPath, section, "show");
@@ -1644,47 +2092,49 @@ public:
             }
         }
 
+        static const std::unordered_set<std::string> dynamicElements = {"FPS", "RES", "READ"};
+
         for (size_t i = 0; i < elementOrder.size(); i++) {
             const std::string& element = elementOrder[i];
             const bool isEnabled = enabledElements.count(element) > 0;
 
-            auto* elementItem = new tsl::elm::MiniListItem(element);
+            auto* elementItem = new tsl::elm::MiniToggleListItem(element, isEnabled);
             elementItem->enableShortHoldKey();
             elementItem->enableLongHoldKey();
-            elementItem->setValue(isEnabled ? ult::ON : ult::OFF, !isEnabled);
 
-            elementItem->setClickListener([this, elementItem, element](uint64_t keys) {
-                static bool hasNotTriggeredAnimation = false;
-                if (hasNotTriggeredAnimation) {
-                    elementItem->triggerClickAnimation();
-                    hasNotTriggeredAnimation = false;
-                }
-                if (keys & KEY_A) {
-                    // Dynamic elements (FPS, RES, READ) only render when a game is running,
-                    // so they don't count as "always visible". Block turning off an always-showing
-                    // element if it would leave no always-showing elements enabled.
-                    static const std::unordered_set<std::string> dynamicElements = {"FPS", "RES", "READ"};
-                    if (enabledElements.count(element)) {
-                        // Turning OFF — guard against leaving zero always-showing elements
-                        if (dynamicElements.count(element) == 0) {
-                            // Count always-showing elements that would remain enabled after removal
-                            int alwaysOnAfter = 0;
-                            for (const auto& e : enabledElements) {
-                                if (e != element && dynamicElements.count(e) == 0)
-                                    alwaysOnAfter++;
-                            }
-                            if (alwaysOnAfter == 0) return true; // Block: last always-showing element
+            // KEY_A: ToggleListItem handles the visual flip; we guard the last
+            // always-showing element and persist the change.
+            elementItem->setStateChangedListener([this, elementItem, element](bool newState) {
+                if (!newState) {
+                    // Turning OFF — block if this would leave no always-showing elements
+                    if (dynamicElements.count(element) == 0) {
+                        int alwaysOnAfter = 0;
+                        for (const auto& e : enabledElements) {
+                            if (e != element && dynamicElements.count(e) == 0)
+                                alwaysOnAfter++;
                         }
-                        enabledElements.erase(element);
-                    } else {
-                        enabledElements.insert(element);
+                        if (alwaysOnAfter == 0) {
+                            // Revert the visual state and bail
+                            elementItem->setState(true);
+                            return;
+                        }
                     }
-                    updateShowAndOrder();
-                    jumpItemName = element; jumpItemValue = ""; jumpItemExactMatch = true;
-                    hasNotTriggeredAnimation = true;
-                    tsl::swapTo<ShowConfig>(SwapDepth(1), modeName);
-                    return true;
+                    enabledElements.erase(element);
+                } else {
+                    enabledElements.insert(element);
                 }
+                updateShowAndOrder();
+                jumpItemName = element; jumpItemValue = ""; jumpItemExactMatch = true;
+                // Don't swapTo here -- this listener is invoked from inside
+                // ToggleListItem::onClick, which still touches `this` (the
+                // toggle item being destroyed by the swap) after we return.
+                // Defer to handleInput() instead.
+                pendingRebuild = true;
+            });
+
+            // KEY_X / KEY_Y: reorder (ToggleListItem passes non-KEY_A keys through
+            // to the click listener after handling its own KEY_A toggle).
+            elementItem->setClickListener([this, element](uint64_t keys) {
                 if (keys & KEY_Y || keys & KEY_X) {
                     size_t currentPos = 0;
                     for (size_t j = 0; j < elementOrder.size(); j++) {
@@ -1713,7 +2163,9 @@ public:
                     }
                     updateShowAndOrder();
                     jumpItemName = element; jumpItemValue = ""; jumpItemExactMatch = true;
-                    tsl::swapTo<ShowConfig>(SwapDepth(1), modeName);
+                    // Same reasoning as the toggle listener above: defer the
+                    // rebuild to handleInput() rather than swapping here.
+                    pendingRebuild = true;
                     return true;
                 }
                 return false;
@@ -1724,11 +2176,19 @@ public:
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch);
         clearJump();
 
-        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " 配置", list);
+        return makeFrame(modeName + " " + ult::DIVIDER_SYMBOL + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
                              HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        // Performed here (not inside the toggle/click listeners) so the swap
+        // only happens once the element's own onClick call has fully returned
+        // -- see the pendingRebuild comment above for why this matters.
+        if (pendingRebuild) {
+            pendingRebuild = false;
+            tsl::swapTo<ShowConfig>(SwapDepth(1), modeName);
+            return true;
+        }
         if (keysDown & KEY_B) {
             triggerExitFeedback();
             tsl::goBack();
@@ -1768,15 +2228,15 @@ private:
     int getCurrentRefreshRate() const {
         const std::string section = modeToSection(modeName);
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 5 : (flags.isMini ? 30 : 3));
+        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
         return value.empty() ? defaultRate : atoi(value.c_str());
     }
 
     int getCurrentSampleRate() const {
         const std::string section = modeToSection(modeName);
         const std::string rrVal = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 5 : (flags.isMini ? 30 : 3));
-        const int defaultSampleRate = (flags.isFPSGraph || flags.isMini) ? 3 : defaultRate;
+        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
+        const int defaultSampleRate = (flags.isFPSGraph ? 3 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 2 : defaultRate)));
         const int maxRate = rrVal.empty() ? defaultRate : std::clamp(atoi(rrVal.c_str()), 1, 60);
         const std::string srVal = ult::parseValueFromIniSection(configIniPath, section, "sample_rate");
         return srVal.empty() ? std::min(defaultSampleRate, maxRate) : std::clamp(atoi(srVal.c_str()), 1, maxRate);
@@ -1784,9 +2244,9 @@ private:
 
     int getCurrentFramePadding() const {
         const std::string section = modeToSection(modeName);
-        if (section.empty()) return 4;
+        if (section.empty()) return 0;
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "frame_padding");
-        return value.empty() ? 4 : atoi(value.c_str());
+        return value.empty() ? 0 : atoi(value.c_str());
     }
 
     int getCurrentMicroHPadding() const {
@@ -1820,12 +2280,12 @@ private:
     // Mini space-unit paddings (tenths of a space). Defaults mirror MiniSettings.
     int getCurrentMiniHPadding() const {
         const std::string value = ult::parseValueFromIniSection(configIniPath, "mini", "horizontal_padding");
-        return value.empty() ? 30 : std::clamp(atoi(value.c_str()), 2, 60);
+        return value.empty() ? 36 : std::clamp(atoi(value.c_str()), 2, 60);
     }
 
     int getCurrentMiniVPadding() const {
         const std::string value = ult::parseValueFromIniSection(configIniPath, "mini", "vertical_padding");
-        return value.empty() ? 30 : std::clamp(atoi(value.c_str()), 2, 60);
+        return value.empty() ? 36 : std::clamp(atoi(value.c_str()), 2, 60);
     }
 
     int getCurrentMiniSpacing() const {
@@ -1840,7 +2300,7 @@ private:
 
     int getCurrentMiniCornerRadius() const {
         const std::string value = ult::parseValueFromIniSection(configIniPath, "mini", "corner_radius");
-        return value.empty() ? 40 : std::clamp(atoi(value.c_str()), 0, 80);
+        return value.empty() ? 36 : std::clamp(atoi(value.c_str()), 0, 80);
     }
 
     std::string getDTCFormatName(const std::string& formatStr) const {
@@ -1875,32 +2335,32 @@ private:
     std::string getCurrentTextAlign() const {
         std::string value = ult::parseValueFromIniSection(configIniPath, "micro", "text_align");
         convertToUpper(value);
-        if (value == "LEFT")  return "左";
-        if (value == "RIGHT") return "右";
-        return "中";
+        if (value == "LEFT")  return "Left";
+        if (value == "RIGHT") return "Right";
+        return "Center";
     }
 
     std::string getCurrentLayerPosRight() const {
         const std::string section = modeToSection(modeName);
         std::string value = ult::parseValueFromIniSection(configIniPath, section, "layer_width_align");
         convertToUpper(value);
-        if (value == "RIGHT")  return "右";
-        if (!flags.isFull && value == "CENTER") return "中";
-        return "左";
+        if (value == "RIGHT")  return "Right";
+        if (!flags.isFull && value == "CENTER") return "Center";
+        return "Left";
     }
 
     std::string getCurrentLayerPosBottom() const {
         const std::string section = modeToSection(modeName);
         std::string value = ult::parseValueFromIniSection(configIniPath, section, "layer_height_align");
         convertToUpper(value);
-        if (value == "BOTTOM") return "下";
-        if (!flags.isMicro && value == "CENTER") return "中";
-        return "上";
+        if (value == "BOTTOM") return "Bottom";
+        if (!flags.isMicro && value == "CENTER") return "Center";
+        return "Top";
     }
 
     std::string cycleTextAlign() {
         const std::string current = getCurrentTextAlign();
-        const std::string next = (current == "左") ? "中" : (current == "中") ? "右" : "左";
+        const std::string next = (current == "Left") ? "Center" : (current == "Center") ? "Right" : "Left";
         ult::setIniFileValue(configIniPath, "micro", "text_align", next);
         return next;
     }
@@ -1910,10 +2370,10 @@ private:
         const std::string current = getCurrentLayerPosRight();
         std::string next;
         if (flags.isFull)
-            next = (current == "左") ? "右" : "左";
+            next = (current == "Left") ? "Right" : "Left";
         else
-            next = (current == "左") ? "中" : (current == "中") ? "右" : "左";
-        const std::string value = (next == "右") ? "right" : (next == "中" ? "center" : "left");
+            next = (current == "Left") ? "Center" : (current == "Center") ? "Right" : "Left";
+        const std::string value = (next == "Right") ? "right" : (next == "Center" ? "center" : "left");
         ult::setIniFileValue(configIniPath, section, "layer_width_align", value);
         return next;
     }
@@ -1923,10 +2383,10 @@ private:
         const std::string current = getCurrentLayerPosBottom();
         std::string next;
         if (flags.isMicro)
-            next = (current == "上") ? "下" : "上";
+            next = (current == "Top") ? "Bottom" : "Top";
         else
-            next = (current == "上") ? "中" : (current == "中") ? "下" : "上";
-        const std::string value = (next == "下") ? "bottom" : (next == "中" ? "center" : "top");
+            next = (current == "Top") ? "Center" : (current == "Center") ? "Bottom" : "Top";
+        const std::string value = (next == "Bottom") ? "bottom" : (next == "Center" ? "center" : "top");
         ult::setIniFileValue(configIniPath, section, "layer_height_align", value);
         return next;
     }
@@ -1936,11 +2396,11 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("配置"));
+        list->addItem(new tsl::elm::CategoryHeader("Configuration"));
 
         // Elements (Mini/Micro only)
         if (flags.isMini || flags.isMicro) {
-            auto* showSettings = new tsl::elm::ListItem("元素");
+            auto* showSettings = new tsl::elm::ListItem("Elements");
             showSettings->setValue(ult::DROPDOWN_SYMBOL);
             showSettings->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<ShowConfig>(modeName); return true; }
@@ -1951,7 +2411,7 @@ public:
 
         // Toggles (all modes)
         {
-            auto* toggles = new tsl::elm::ListItem("开关");
+            auto* toggles = new tsl::elm::ListItem("Toggles");
             toggles->setValue(ult::DROPDOWN_SYMBOL);
             toggles->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<TogglesConfig>(modeName); return true; }
@@ -1962,7 +2422,7 @@ public:
 
         // Colors (all modes)
         {
-            auto* colors = new tsl::elm::ListItem("颜色");
+            auto* colors = new tsl::elm::ListItem("Colors");
             colors->setValue(ult::DROPDOWN_SYMBOL);
             colors->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<ColorConfig>(modeName); return true; }
@@ -1973,7 +2433,7 @@ public:
 
         // Font Sizes (Mini/Micro/FPS Counter only)
         if (flags.isMini || flags.isMicro || flags.isFPSCounter) {
-            auto* fontSizes = new tsl::elm::ListItem("字号");
+            auto* fontSizes = new tsl::elm::ListItem("Font Sizes");
             fontSizes->setValue(ult::DROPDOWN_SYMBOL);
             fontSizes->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<FontSizeConfig>(modeName); return true; }
@@ -1982,9 +2442,21 @@ public:
             list->addItem(fontSizes);
         }
 
-        // Sample Rate (Mini / FPS Graph) — above Refresh Rate
-        if (flags.isMini || flags.isFPSGraph) {
-            auto* sampleRate = new tsl::elm::ListItem("采样率");
+        // Paddings — after Font Sizes (or after Colors for modes without Font Sizes),
+        // before Sample Rate / Refresh Rate.
+        if (flags.isMini || flags.isGameRes || flags.isFPSCounter || flags.isFPSGraph || flags.isMicro) {
+            auto* paddings = new tsl::elm::ListItem("Paddings");
+            paddings->setValue(ult::DROPDOWN_SYMBOL);
+            paddings->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<PaddingsConfig>(modeName); return true; }
+                return false;
+            });
+            list->addItem(paddings);
+        }
+
+        // Sample Rate (Mini / FPS Counter / FPS Graph / Game Resolutions / Full) — above Refresh Rate
+        if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes || flags.isFull) {
+            auto* sampleRate = new tsl::elm::ListItem("Sample Rate");
             sampleRate->setValue(std::to_string(getCurrentSampleRate()) + " Hz");
             sampleRate->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<SampleRateConfig>(modeName); return true; }
@@ -1995,7 +2467,7 @@ public:
 
         // Refresh Rate (all modes)
         {
-            auto* refreshRate = new tsl::elm::ListItem("刷新率");
+            auto* refreshRate = new tsl::elm::ListItem("Refresh Rate");
             refreshRate->setValue(std::to_string(getCurrentRefreshRate()) + " Hz");
             refreshRate->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<RefreshRateConfig>(modeName); return true; }
@@ -2006,7 +2478,7 @@ public:
 
         // DTC Format (Mini/Micro only)
         if (flags.isMini || flags.isMicro) {
-            auto* dtcFormat1 = new tsl::elm::ListItem("DTC格式 1");
+            auto* dtcFormat1 = new tsl::elm::ListItem("DTC Format 1");
             dtcFormat1->setValue(getCurrentDTCFormatLabel(1));
             dtcFormat1->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<DTCFormatConfig>(modeName, 1); return true; }
@@ -2014,7 +2486,7 @@ public:
             });
             list->addItem(dtcFormat1);
 
-            auto* dtcFormat2 = new tsl::elm::ListItem("DTC格式 2");
+            auto* dtcFormat2 = new tsl::elm::ListItem("DTC Format 2");
             dtcFormat2->setValue(getCurrentDTCFormatLabel(2));
             dtcFormat2->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<DTCFormatConfig>(modeName, 2); return true; }
@@ -2023,63 +2495,9 @@ public:
             list->addItem(dtcFormat2);
         }
 
-        // Frame Padding (Mini/Game Resolutions/FPS Counter/FPS Graph)
-        if (flags.isMini || flags.isGameRes || flags.isFPSCounter || flags.isFPSGraph) {
-            auto* framePadding = new tsl::elm::ListItem("边框内边距");
-            framePadding->setValue(std::to_string(getCurrentFramePadding()) + " px");
-            framePadding->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<FramePaddingConfig>(modeName); return true; }
-                return false;
-            });
-            list->addItem(framePadding);
-        }
-
-        // Mini space-unit paddings (Horizontal / Vertical / Spacing / Corner Radius)
-        if (flags.isMini) {
-            auto* hPadding = new tsl::elm::ListItem("水平内边距");
-            hPadding->setValue(formatSpTenths(getCurrentMiniHPadding()));
-            hPadding->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MiniHPaddingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(hPadding);
-
-            auto* vPadding = new tsl::elm::ListItem("垂直内边距");
-            vPadding->setValue(formatSpTenths(getCurrentMiniVPadding()));
-            vPadding->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MiniVPaddingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(vPadding);
-
-            auto* spacing = new tsl::elm::ListItem("间距");
-            spacing->setValue(formatSpTenths(getCurrentMiniSpacing()));
-            spacing->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MiniSpacingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(spacing);
-
-            auto* stackedSpacing = new tsl::elm::ListItem("堆叠间距");
-            stackedSpacing->setValue(formatSpTenths(getCurrentMiniStackedSpacing()));
-            stackedSpacing->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MiniStackedSpacingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(stackedSpacing);
-
-            auto* cornerRadius = new tsl::elm::ListItem("圆角半径");
-            cornerRadius->setValue(formatSpTenths(getCurrentMiniCornerRadius()));
-            cornerRadius->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MiniCornerRadiusConfig>(); return true; }
-                return false;
-            });
-            list->addItem(cornerRadius);
-        }
-
-        // Mode-specific positioning
+        // Mode-specific positioning (kept in main menu — these are positional, not padding)
         if (flags.isMicro) {
-            auto* textAlign = new tsl::elm::ListItem("文本对齐");
+            auto* textAlign = new tsl::elm::ListItem("Text Alignment");
             textAlign->setValue(getCurrentTextAlign());
             textAlign->setClickListener([this, textAlign](uint64_t keys) {
                 if (keys & KEY_A) { textAlign->setValue(cycleTextAlign()); return true; }
@@ -2087,7 +2505,7 @@ public:
             });
             list->addItem(textAlign);
 
-            auto* layerPos = new tsl::elm::ListItem("垂直位置");
+            auto* layerPos = new tsl::elm::ListItem("Vertical Position");
             layerPos->setValue(getCurrentLayerPosBottom());
             layerPos->setClickListener([this, layerPos](uint64_t keys) {
                 if (keys & KEY_A) { layerPos->setValue(cycleLayerPosBottom()); return true; }
@@ -2095,48 +2513,8 @@ public:
             });
             list->addItem(layerPos);
 
-            auto* hPadding = new tsl::elm::ListItem("水平内边距");
-            hPadding->setValue(formatSpTenths(getCurrentMicroHPadding()));
-            hPadding->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MicroHPaddingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(hPadding);
-
-            auto* vPadding = new tsl::elm::ListItem("垂直内边距");
-            vPadding->setValue(formatSpTenths(getCurrentMicroVPadding()));
-            vPadding->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MicroVPaddingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(vPadding);
-
-            auto* stackedSpacing = new tsl::elm::ListItem("堆叠间距");
-            stackedSpacing->setValue(formatSpTenths(getCurrentMicroStackedSpacing()));
-            stackedSpacing->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MicroStackedSpacingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(stackedSpacing);
-
-            auto* lPadding = new tsl::elm::ListItem("标签内边距");
-            lPadding->setValue(formatSpTenths(getCurrentMicroLabelPadding()));
-            lPadding->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MicroLabelPaddingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(lPadding);
-
-            auto* ePadding = new tsl::elm::ListItem("元素内边距");
-            ePadding->setValue(formatSpWhole(getCurrentMicroElementPadding()));
-            ePadding->setClickListener([this](uint64_t keys) {
-                if (keys & KEY_A) { tsl::changeTo<MicroElementPaddingConfig>(); return true; }
-                return false;
-            });
-            list->addItem(ePadding);
-
         } else if (flags.isFull) {
-            auto* layerPos = new tsl::elm::ListItem("水平位置");
+            auto* layerPos = new tsl::elm::ListItem("Horizontal Position");
             layerPos->setValue(getCurrentLayerPosRight());
             layerPos->setClickListener([this, layerPos](uint64_t keys) {
                 if (keys & KEY_A) { layerPos->setValue(cycleLayerPosRight()); return true; }
@@ -2153,7 +2531,7 @@ public:
                 if (comboDisplay.empty()) comboDisplay = ult::OPTION_SYMBOL;
                 else ult::convertComboToUnicode(comboDisplay);
 
-                auto* modeCombo = new tsl::elm::ListItem("模式快捷键", comboDisplay);
+                auto* modeCombo = new tsl::elm::ListItem("Mode Combo", comboDisplay);
                 modeCombo->setClickListener([this](uint64_t keys) {
                     if (keys & KEY_A) { tsl::changeTo<ModeComboConfig>(modeName); return true; }
                     return false;
@@ -2165,7 +2543,7 @@ public:
         list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch.load(std::memory_order_acquire));
         clearJump();
 
-        auto* rootFrame = new tsl::elm::OverlayFrame("状态监控", modeName);
+        auto* rootFrame = new tsl::elm::OverlayFrame("Status Monitor", modeName);
         rootFrame->setContent(list);
         return rootFrame;
     }

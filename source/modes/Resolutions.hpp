@@ -292,11 +292,19 @@ public:
             // threshold in ns (100 ms)
             static constexpr u64 CHECK_NS = 2000000000ULL;
         
+            // Configurable Switch 2 frame border; offset 0 when border is off.
+            const int borderOffset = settings.useBorder ? 1 : 0;
+            // Corner radius in sp (tenths of a space), converted to px at the
+            // current font, mirroring Mini. Measured at a fixed reference size so
+            // the fixed-pixel layout keeps a stable default (4.0 sp ~= 16 px).
+            const float _crSpW = (float)renderer->getTextDimensions(" ", false, 16).first;
+            const float _crSpace = (_crSpW > 0.5f) ? _crSpW : 4.0f;
+            const int cornerRadius = (int)(_crSpace * (float)settings.cornerRadiusSp / 10.0f + 0.5f);
             // Game detected
             if (gameStart && NxFps && NxFps->API >= 1 && (Resolutions_c[0] != '\0' && Resolutions2_c[0] != '\0')) {
                 lastGameSeenTick = curTick;
                 waitingForGame = true; // reset waiting state so next missing cycle shows "Checking..."
-                renderer->drawRoundedRectSingleThreaded(final_base_x, final_base_y, total_width, total_height, 16, aWithOpacity(bgColor));
+                renderer->drawRoundedRectSingleThreaded(final_base_x + borderOffset, final_base_y + borderOffset, total_width - (2*borderOffset), total_height - (2*borderOffset), cornerRadius, aWithOpacity(bgColor));
         
                 int xOffset = 10;
                 int yOffset = 10;
@@ -307,7 +315,7 @@ public:
             }
             // Game not detected
             else {
-                renderer->drawRoundedRectSingleThreaded(final_base_x, final_base_y, total_width, total_height, 16, aWithOpacity(bgColor));
+                renderer->drawRoundedRectSingleThreaded(final_base_x + borderOffset, final_base_y + borderOffset, total_width - (2*borderOffset), total_height - (2*borderOffset), cornerRadius, aWithOpacity(bgColor));
         
                 // Check elapsed time since last game detection
                 u64 elapsed_ns = armTicksToNs(curTick - lastGameSeenTick);
@@ -327,6 +335,14 @@ public:
                 
                 renderer->drawString(msg, false, text_x, (under100ms && waitingForGame) ? text_y+textHeight/2 : text_y, 20, (under100ms && waitingForGame) ? 0xFFFF : 0xF00F);
             }
+
+            if (settings.useBorder) {
+                const auto w2 = makeBorderWheel(settings);
+                renderer->drawBorderedRoundedRect(final_base_x, final_base_y, total_width, total_height,
+                    settings.borderThickness, cornerRadius,
+                    aWithOpacity(settings.borderColor),
+                    settings.useDynamicBorder ? &w2 : nullptr);
+            }
         });
         
         tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("", "");
@@ -338,7 +354,7 @@ public:
     virtual void update() override {
 
         const u64 _nowTick = armGetSystemTick();
-        const bool shouldUpdateData = (_nowTick - lastDataUpdateTick) >= (systemtickfrequency / settings.refreshRate);
+        const bool shouldUpdateData = (_nowTick - lastDataUpdateTick) >= (systemtickfrequency / settings.sampleRate);
         if (shouldUpdateData) lastDataUpdateTick = _nowTick;
 
         if (shouldUpdateData && gameStart && NxFps) {
