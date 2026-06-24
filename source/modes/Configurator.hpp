@@ -2498,7 +2498,15 @@ public:
             list->addItem(dtcFormat1);
 
             auto* dtcFormat2 = new tsl::elm::ListItem("DTC格式 2");
-     clearJump();
+            dtcFormat2->setValue(getCurrentDTCFormatLabel(2));
+            dtcFormat2->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<DTCFormatConfig>(modeName, 2); return true; }
+                return false;
+            });
+            list->addItem(dtcFormat2);
+        }
+
+        clearJump();
 
         auto* rootFrame = new tsl::elm::OverlayFrame("状态监控", modeDisplayName(modeName));
         rootFrame->setContent(list);
