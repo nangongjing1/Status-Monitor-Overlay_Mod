@@ -118,7 +118,82 @@ private:
     // the VI layer moves before the buffer has been redrawn.
     bool pendingLayerPos = false;
     Thread swipePollThread;
-    
+
+    // ── Stop Watch ────────────────────────────────────────────────────────────
+    // Temporary (never persisted): turns the DTC datetime cell into an elapsed
+    // seconds timer (1 decimal). Per-overlay-instance state, so a fresh overlay
+    // always opens on the datetime and exiting resets everything. Input edges are
+    // detected in swipePollThread (the 32 ms background poller), NOT handleInput,
+    // because the frame limiter can throttle handleInput and drop ZL+L / ZR+R.
+    std::atomic<bool>     swMode{false};       // false = DTC datetime, true = timer
+    std::atomic<bool>     swRunning{false};    // timer counting up
+    std::atomic<uint64_t> swAccumNs{0};        // elapsed accumulated while stopped
+    std::atomic<uint64_t> swStartNs{0};        // arm-ns captured when timer last started
+    std::atomic<bool>     swPrevComboL{false}; // ZL+L edge state (poll thread)
+    std::atomic<bool>     swPrevComboR{false}; // ZR+R edge state (poll thread)
+    bool                  swModePrev{false};   // update()-thread: last mode, to nudge layout rebuild
+
+    inline uint64_t swElapsedNs(uint64_t nowNs) const {
+        uint64_t acc = swAccumNs.load(std::memory_order_acquire);
+        if (swRunning.load(std::memory_order_acquire)) {
+            const uint64_t st = swStartNs.load(std::memory_order_acquire);
+            if (nowNs > st) acc += (nowNs - st);
+        }
+        return acc;
+    }
+    // ZL+L: DTC -> timer(reset); timer(running or non-zero) -> reset; timer(reset) -> DTC.
+    inline void swOnComboL(uint64_t nowNs) {
+        if (!swMode.load(std::memory_order_acquire)) {
+            swRunning.store(false, std::memory_order_release);
+            swAccumNs.store(0, std::memory_order_release);
+            swStartNs.store(0, std::memory_order_release);
+            swMode.store(true, std::memory_order_release);
+        } else if (swRunning.load(std::memory_order_acquire) || swElapsedNs(nowNs) != 0) {
+            swRunning.store(false, std::memory_order_release);
+            swAccumNs.store(0, std::memory_order_release);
+            swStartNs.store(0, std::memory_order_release);
+        } else {
+            swMode.store(false, std::memory_order_release);
+        }
+    }
+    // ZR+R: start/stop the timer (only meaningful in timer mode).
+    inline void swOnComboR(uint64_t nowNs) {
+        if (!swMode.load(std::memory_order_acquire)) return;
+        if (swRunning.load(std::memory_order_acquire)) {
+            swAccumNs.store(swElapsedNs(nowNs), std::memory_order_release);
+            swStartNs.store(0, std::memory_order_release);
+            swRunning.store(false, std::memory_order_release);
+        } else {
+            swStartNs.store(nowNs, std::memory_order_release);
+            swRunning.store(true, std::memory_order_release);
+        }
+    }
+    // Called every poll from the background thread with the combined held keys.
+    inline void swPollInput(uint64_t keysHeld, uint64_t nowNs) {
+        const bool active = settings.showStopwatch && settings.showDTC &&
+                            settings.show.find("DTC") != std::string::npos;
+        const bool cl = (keysHeld & KEY_ZL) && (keysHeld & KEY_L);
+        const bool cr = (keysHeld & KEY_ZR) && (keysHeld & KEY_R);
+        if (active) {
+            if (cl && !swPrevComboL.load(std::memory_order_acquire)) swOnComboL(nowNs);
+            if (cr && !swPrevComboR.load(std::memory_order_acquire)) swOnComboR(nowNs);
+        }
+        // Track edges regardless so re-enabling the feature never double-fires.
+        swPrevComboL.store(cl, std::memory_order_release);
+        swPrevComboR.store(cr, std::memory_order_release);
+    }
+    // True when the DTC cell should render the timer instead of the datetime.
+    // Honors the Stop Watch toggle so disabling it reverts to the datetime at once.
+    inline bool swTimerActive() const { return swMode.load(std::memory_order_acquire) && settings.showStopwatch; }
+    // Writes "SS.SS s" (two-decimal elapsed seconds, truncated) into buf.
+    inline void swFormat(char* buf, size_t n) const {
+        const uint64_t el = swElapsedNs(armTicksToNs(armGetSystemTick()));
+        const uint64_t hundredths = el / 10'000'000ULL;   // ns -> 0.01 s units
+        snprintf(buf, n, "%llu.%02llu s",
+                 (unsigned long long)(hundredths / 100ULL),
+                 (unsigned long long)(hundredths % 100ULL));
+    }
+
     // Fixed spacing system - calculate actual widths at render time
     struct LayoutMetrics {
         uint32_t label_data_gap = 8;      // label-value gap (derived from labelPadding spaces)
@@ -152,7 +227,7 @@ private:
     };
     static constexpr size_t kNumItemTypes = 10;        // item.type values 0..9
     // Hold the max width for ~1.5 real seconds before allowing shrink.
-    // Computed from TeslaFPS (the actual overlay refresh rate, e.g. 3 Hz default)
+    // Computed from TeslaFPS (the actual overlay refresh rate, e.g. 30 Hz default)
     // so the window is always ~1.5s regardless of the user's refresh rate setting.
     static constexpr float kDampWindowSeconds = 1.5f;
     inline uint16_t dampWindowFrames() const {
@@ -295,7 +370,8 @@ private:
     // signalled → thread exits immediately.
     // On swipe trigger: stops the frame limiter (isRendering=false + leventSignal) and
     // sets swipeFlipPending. handleInput re-enables the limiter via swipeClearOnRelease.
-    // Plus-hold focus mode: sets plusFocusActive after a 1-second hold; cleared on release.
+    // Plus-hold focus mode: sets plusFocusActive after a configurable hold
+    // ("Button Move Delay", default 1000 ms); cleared on release.
     // While active, handleInput switches to focusBackgroundColor and handles joystick flips.
     static void swipePollFunc(void* arg) {
         auto* self = static_cast<MicroOverlay*>(arg);
@@ -305,7 +381,12 @@ private:
         static constexpr int SWIPE_DIST_PX        = 84;              // framebuffer pixels
         static constexpr int SWIPE_EDGE_PX        = 32;              // touch must start within 16 px of top/bottom edge
         static constexpr int SCREEN_HEIGHT_PX     = 720;             // framebuffer height
-        static constexpr u64 PLUS_HOLD_NS         = 1'000'000'000ULL; // 1 s hold to activate
+        // Plus-hold threshold is user-configurable ("Button Move Delay").
+        // settings is fully populated by GetConfigSettings() in the constructor,
+        // which runs before this thread is created, so reading it here is safe.
+        // Note: there is no touch_move_delay for this mode — touch repositioning
+        // is a swipe gesture, not a press-and-hold.
+        const u64 PLUS_HOLD_NS = (u64)self->settings.buttonMoveDelayMs * 1'000'000ULL;
 
         // HID setup — same as Mini's touch poll thread: allow P1 + Handheld.
         const HidNpadIdType id_list[2] = { HidNpadIdType_No1, HidNpadIdType_Handheld };
@@ -395,6 +476,11 @@ private:
                 }
                 plusHoldStart = 0;
             }
+
+            // ── Stop Watch input ──────────────────────────────────────────────
+            // ZL+L toggles/resets, ZR+R starts/stops. Handled here (not in
+            // handleInput) so the frame limiter can never drop a press.
+            self->swPollInput(keysHeld, nowNs);
 
             // ── Underscan-change layer-position correction ────────────────────
             // When underscan engages/changes while Micro is open, tesla.hpp's
@@ -721,8 +807,9 @@ public:
         cpuFullIsSplit = hasCpu && settings.showFullCPU && settings.showStackedFullCPU;
         // BAT stacked: power draw on top row, pct+estimate on bottom row
         batIsSplit = hasBat && settings.showStackedBAT;
-        // DTC stacked: split user's dtcFormat at DIVIDER_SYMBOL into 2 rows
-        dtcIsSplit = hasDtc && settings.showDTC && settings.showStackedDTC;
+        // DTC stacked: split user's dtcFormat at DIVIDER_SYMBOL into 2 rows.
+        // The Stop Watch timer is a single value, so it always renders one row.
+        dtcIsSplit = hasDtc && settings.showDTC && settings.showStackedDTC && !swTimerActive();
         ramLoadIsSplit = hasRam && settings.showRAMLoad && settings.showRAMLoadCPUGPU && settings.showStackedRAMLoadCPUGPU;
         // GPU die temp split: volt on top row, GPU temp on bottom row
         gpuIsSplit = hasGpu && settings.showGPUTemp && settings.showStackedGPUTemp && settings.realVolts;
@@ -834,7 +921,6 @@ public:
             };
             
             std::vector<ItemLayout> item_layouts;
-            uint32_t total_main_width = 0;
 
             static const auto sep_width = renderer->getTextDimensions("", false, fontsize).first;
 
@@ -1072,11 +1158,18 @@ public:
                     }
                 }
 
-                // BAT split: width = label + gap + max(draw_w, pct_w)
+                // BAT split: width = label + gap + max(draw_w, pct_w).
+                // data_width (not just total_width) must be the max of BOTH rows: the draw
+                // loop right-aligns the top row within data_width and the bottom row within
+                // data_width. If data_width only tracked the top line, a wider bottom line
+                // (e.g. the "%.1f%% [h:mm]" row when invertBatteryDisplay is off) would be
+                // right-aligned past the data-column start and overlap the BAT label.
                 if (batIsSplit && item.type == 6) {
                     const uint32_t draw_w = Battery_draw_c[0] ? renderer->getTextDimensions(Battery_draw_c, false, fontsize).first : 0;
                     const uint32_t pct_w  = Battery_pct_c[0]  ? renderer->getTextDimensions(Battery_pct_c,  false, fontsize).first : 0;
-                    item_layout.total_width = item_layout.label_width + layout.label_data_gap + std::max(draw_w, pct_w);
+                    const uint32_t maxW = std::max(draw_w, pct_w);
+                    item_layout.total_width = item_layout.label_width + layout.label_data_gap + maxW;
+                    item_layout.data_width  = maxW;
                 }
 
                 // DTC split: width = label + gap + max(topHalf, botHalf) computed from the
@@ -1111,7 +1204,6 @@ public:
                 item_layout.total_width = dampItemWidth(item.type, item_layout.total_width);
 
                 item_layouts.push_back(item_layout);
-                total_main_width += item_layout.total_width;
             }
             
 
@@ -1142,12 +1234,6 @@ public:
             //    all_items_ordered.push_back(*battery_item);
             //    all_layouts_ordered.push_back(battery_layout);
             //}
-            
-            // Calculate total width of all items
-            uint32_t total_all_width = 0;
-            for (const auto& item_layout : all_layouts_ordered) {
-                total_all_width += item_layout.total_width;
-            }
             
             // Calculate available space for distribution
             //uint32_t available_width = tsl::cfg::FramebufferWidth - (2 * layout.side_margin);
@@ -2503,9 +2589,9 @@ public:
         // Throttle data formatting to the user-specified refresh rate even when
         // the frame limiter is off (e.g. during drag/reposition).  The render
         // loop may call update() at vsync speed (~60 fps) while repositioning,
-        // but we only rebuild the display strings at 1/refreshRate intervals.
+        // but we only rebuild the display strings at 1/sampleRate intervals.
         const u64 nowTick = armGetSystemTick();
-        const u64 pollIntervalTicks = systemtickfrequency / settings.refreshRate;
+        const u64 pollIntervalTicks = systemtickfrequency / settings.sampleRate;
         const bool shouldUpdateData = (nowTick - lastDataUpdateTick) >= pollIntervalTicks;
         if (shouldUpdateData) lastDataUpdateTick = nowTick;
 
@@ -2895,14 +2981,6 @@ public:
 
         mutexUnlock(&mutex_BatteryChecker);
 
-
-        // Format current datetime for DTC
-        if (settings.showDTC) {
-            time_t rawtime = time(NULL);
-            struct tm *timeinfo = localtime(&rawtime);
-            strftime(DTC_c, sizeof(DTC_c), settings.dtcFormat.c_str(), timeinfo);
-        }
-
         // Thermal info
         const int duty = safeFanDuty((int)Rotation_Duty);
 
@@ -3193,6 +3271,23 @@ public:
         mutexUnlock(&mutex_Misc);
         } // end shouldUpdateData
 
+        // Format current datetime for DTC — or the Stop Watch elapsed timer when active.
+        // Kept OUTSIDE the sampleRate gate so the timer advances at the overlay refresh
+        // rate (smooth for the 2-decimal display) while sensor data stays on sampleRate.
+        if (settings.showDTC) {
+            const bool timer = swTimerActive();
+            // A mode flip changes dtcIsSplit (single vs stacked), computed in
+            // prepareRenderItems — force a rebuild so the row layout matches this frame.
+            if (timer != swModePrev) { renderDataDirty = true; swModePrev = timer; }
+            if (timer) {
+                swFormat(DTC_c, sizeof(DTC_c));
+            } else {
+                time_t rawtime = time(NULL);
+                struct tm *timeinfo = localtime(&rawtime);
+                strftime(DTC_c, sizeof(DTC_c), settings.dtcFormat.c_str(), timeinfo);
+            }
+        }
+
         //static bool skipOnce = true;
     
         if (!skipOnce) {
@@ -3227,7 +3322,7 @@ public:
         // The poll thread sets plusFocusActive after a 1-second Plus hold and
         // stops the frame limiter. Here we:
         //   1. Re-enable the frame limiter the frame after focus mode ends.
-        //   2. While active, map left-joystick full-up/down to position flips
+        //   2. While active, map either-joystick full-up/down to position flips
         //      (same logic as swipeFlipPending: toggle setPosBottom, move layer,
         //       force re-init, then wait for one drawn frame before re-enabling).
         {
@@ -3235,11 +3330,15 @@ public:
 
             if (focusNow) {
                 // Frame limiter is already stopped by the poll thread.
-                // Check left joystick for top/bottom snap.
+                // Check both joysticks for top/bottom snap.
                 static constexpr int JOYSTICK_SNAP_THRESHOLD = 28000; // ~85 % of 32767
                 static bool joystickFlipArmed = true; // re-arm once stick returns to center
 
-                const int jy = joyStickPosLeft.y;
+                // Accept EITHER stick: use whichever Y axis is deflected further, so
+                // PLUS + left stick and PLUS + right stick both flip the position.
+                const int jyL = joyStickPosLeft.y;
+                const int jyR = joyStickPosRight.y;
+                const int jy  = (abs(jyR) > abs(jyL)) ? jyR : jyL;
                 const bool stickAtBottom = (jy <= -JOYSTICK_SNAP_THRESHOLD);
                 const bool stickAtTop    = (jy >=  JOYSTICK_SNAP_THRESHOLD);
                 const bool stickNeutral  = (abs(jy) < JOYSTICK_SNAP_THRESHOLD / 2);

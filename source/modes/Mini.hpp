@@ -105,7 +105,82 @@ private:
 
     Thread graphSampleThread;
     std::atomic<bool> graphSampleRunning{false};
-    
+
+    // ── Stop Watch ────────────────────────────────────────────────────────────
+    // Temporary (never persisted): turns the DTC datetime cell into an elapsed
+    // seconds timer (1 decimal). All state is per-overlay-instance, so a fresh
+    // overlay always opens on the datetime and exiting resets everything.
+    // Input edges are detected in touchPollThread (the 32 ms background poller),
+    // NOT handleInput, because the frame limiter can throttle handleInput and drop
+    // ZL+L / ZR+R presses.
+    std::atomic<bool>     swMode{false};       // false = DTC datetime, true = timer
+    std::atomic<bool>     swRunning{false};    // timer counting up
+    std::atomic<uint64_t> swAccumNs{0};        // elapsed accumulated while stopped
+    std::atomic<uint64_t> swStartNs{0};        // arm-ns captured when timer last started
+    std::atomic<bool>     swPrevComboL{false}; // ZL+L edge state (poll thread)
+    std::atomic<bool>     swPrevComboR{false}; // ZR+R edge state (poll thread)
+
+    inline uint64_t swElapsedNs(uint64_t nowNs) const {
+        uint64_t acc = swAccumNs.load(std::memory_order_acquire);
+        if (swRunning.load(std::memory_order_acquire)) {
+            const uint64_t st = swStartNs.load(std::memory_order_acquire);
+            if (nowNs > st) acc += (nowNs - st);
+        }
+        return acc;
+    }
+    // ZL+L: DTC -> timer(reset); timer(running or non-zero) -> reset; timer(reset) -> DTC.
+    inline void swOnComboL(uint64_t nowNs) {
+        if (!swMode.load(std::memory_order_acquire)) {
+            swRunning.store(false, std::memory_order_release);
+            swAccumNs.store(0, std::memory_order_release);
+            swStartNs.store(0, std::memory_order_release);
+            swMode.store(true, std::memory_order_release);
+        } else if (swRunning.load(std::memory_order_acquire) || swElapsedNs(nowNs) != 0) {
+            swRunning.store(false, std::memory_order_release);
+            swAccumNs.store(0, std::memory_order_release);
+            swStartNs.store(0, std::memory_order_release);
+        } else {
+            swMode.store(false, std::memory_order_release);
+        }
+    }
+    // ZR+R: start/stop the timer (only meaningful in timer mode).
+    inline void swOnComboR(uint64_t nowNs) {
+        if (!swMode.load(std::memory_order_acquire)) return;
+        if (swRunning.load(std::memory_order_acquire)) {
+            swAccumNs.store(swElapsedNs(nowNs), std::memory_order_release);
+            swStartNs.store(0, std::memory_order_release);
+            swRunning.store(false, std::memory_order_release);
+        } else {
+            swStartNs.store(nowNs, std::memory_order_release);
+            swRunning.store(true, std::memory_order_release);
+        }
+    }
+    // Called every poll from the background thread with the combined held keys.
+    inline void swPollInput(uint64_t keysHeld, uint64_t nowNs) {
+        const bool active = settings.showStopwatch && settings.showDTC &&
+                            settings.show.find("DTC") != std::string::npos;
+        const bool cl = (keysHeld & KEY_ZL) && (keysHeld & KEY_L);
+        const bool cr = (keysHeld & KEY_ZR) && (keysHeld & KEY_R);
+        if (active) {
+            if (cl && !swPrevComboL.load(std::memory_order_acquire)) swOnComboL(nowNs);
+            if (cr && !swPrevComboR.load(std::memory_order_acquire)) swOnComboR(nowNs);
+        }
+        // Track edges regardless so re-enabling the feature never double-fires.
+        swPrevComboL.store(cl, std::memory_order_release);
+        swPrevComboR.store(cr, std::memory_order_release);
+    }
+    // True when the DTC cell should render the timer instead of the datetime.
+    // Honors the Stop Watch toggle so disabling it reverts to the datetime at once.
+    inline bool swTimerActive() const { return swMode.load(std::memory_order_acquire) && settings.showStopwatch; }
+    // Writes "SS.SS s" (two-decimal elapsed seconds, truncated) into buf.
+    inline void swFormat(char* buf, size_t n) const {
+        const uint64_t el = swElapsedNs(armTicksToNs(armGetSystemTick()));
+        const uint64_t hundredths = el / 10'000'000ULL;   // ns -> 0.01 s units
+        snprintf(buf, n, "%llu.%02llu s",
+                 (unsigned long long)(hundredths / 100ULL),
+                 (unsigned long long)(hundredths % 100ULL));
+    }
+
     // Width (in pixels) of a single space glyph at the current font size. This is the
     // unit for Mini's space-based paddings (spacing / horizontal / vertical / corner),
     // so they stay visually consistent across font sizes without a displayScale factor.
@@ -392,8 +467,15 @@ public:
             
             u64 plusHoldStart = 0;
             u64 touchHoldStart = 0;
-            static constexpr u64 TOUCH_HOLD_THRESHOLD_NS = 500'000'000ULL;  // 500ms
-            static constexpr u64 PLUS_HOLD_THRESHOLD_NS  = 1'000'000'000ULL; // 1s
+            // Touch must ORIGINATE inside the overlay bounds to arm repositioning.
+            // wasTouching tracks finger-down state across polls so we can detect the
+            // press edge; touchSequenceValid latches whether that press landed in bounds.
+            // A finger that starts elsewhere and slides onto the overlay stays invalid
+            // for the whole contact, so it can never trigger an accidental move.
+            bool wasTouching = false;
+            bool touchSequenceValid = false;
+            const u64 TOUCH_HOLD_THRESHOLD_NS = (u64)overlay->settings.touchMoveDelayMs * 1'000'000ULL;
+            const u64 PLUS_HOLD_THRESHOLD_NS  = (u64)overlay->settings.buttonMoveDelayMs * 1'000'000ULL;
         
             HidTouchScreenState state = {0};
             bool inputDetected;
@@ -435,12 +517,19 @@ public:
                         const int touchableWidth = overlayWidth + (touchPadding * 2);
                         const int touchableHeight = overlayHeight + (touchPadding * 2);
                         
-                        // Check if touch is within bounds — 500ms hold required.
-                        // Guard on overlayHeight > 0: drawCachedHeight is 0 until the draw
-                        // path runs at least once; a zero-height rect would match any touch Y.
-                        if (overlayHeight > 0 &&
+                        // Check if touch is within bounds — hold required.
+                        const bool inBounds = (
+                            overlayHeight > 0 &&
                             touchX >= touchableX && touchX <= touchableX + touchableWidth &&
-                            touchY >= touchableY && touchY <= touchableY + touchableHeight) {
+                            touchY >= touchableY && touchY <= touchableY + touchableHeight);
+                        
+                        // Latch validity on the press edge only. If the finger went down
+                        // outside the overlay, this contact can never arm repositioning,
+                        // even if it is later dragged over the overlay.
+                        if (!wasTouching) touchSequenceValid = inBounds;
+                        wasTouching = true;
+                        
+                        if (inBounds && touchSequenceValid) {
                             if (overlay->buttonState.touchDragActive.load(std::memory_order_acquire)) {
                                 // Drag already confirmed — keep input signalled
                                 inputDetected = true;
@@ -457,8 +546,11 @@ public:
                             overlay->buttonState.touchDragActive.exchange(false, std::memory_order_acq_rel);
                         }
                     } else {
-                        // No touch detected — reset hold timer and drag-ready flag
+                        // No touch detected — finger lifted. Reset hold timer, the
+                        // drag-ready flag, and the origin latch for the next contact.
                         touchHoldStart = 0;
+                        wasTouching = false;
+                        touchSequenceValid = false;
                         overlay->buttonState.touchDragActive.exchange(false, std::memory_order_acq_rel);
                     }
                     
@@ -487,7 +579,12 @@ public:
                         plusHoldStart = 0;
                         overlay->buttonState.plusDragActive.exchange(false, std::memory_order_acq_rel);
                     }
-                    
+
+                    // Stop Watch: ZL+L toggles/resets, ZR+R starts/stops. Handled here
+                    // (not in handleInput) so the frame limiter can never drop a press.
+                    // Deliberately does NOT set inputDetected — the timer keeps rendering.
+                    overlay->swPollInput(keysHeld, now);
+
                     // Disable rendering on any input, re-enable when no input
                     static bool resetOnce = true;
                     if (inputDetected) {
@@ -605,7 +702,6 @@ public:
             static bool needsRecalc = true;
             static std::vector<std::string> labelLines; // Store individual label lines
             static std::string lastVariables; // Track changes in Variables content
-            static size_t entryCount = 0;
             static uint32_t cachedHeight = 0;
             static int cachedBaseX = 0, cachedBaseY = 0;
             static bool lastGameRunning = false; // Track game state changes
@@ -1175,7 +1271,6 @@ public:
             if (needsRecalc) {
                 // Build label lines array for individual centering
                 labelLines.clear();
-                entryCount = 0;
                 uint16_t flags = 0;
                 
                 bool shouldAdd;
@@ -1190,11 +1285,9 @@ public:
                         if (wantCPUFullSplit) {
                             labelLines.push_back("CPU_SFULL");
                             labelLines.push_back("CPU_SFREQ");
-                            entryCount++;
                         } else if (wantCPUSplit) {
                             labelLines.push_back("CPU_SVOLT");
                             labelLines.push_back("CPU_STEMP");
-                            entryCount++;
                         } else {
                             shouldAdd = true;
                             labelText = "CPU";
@@ -1205,7 +1298,6 @@ public:
                         if (wantGPUSplit) {
                             labelLines.push_back("GPU_SVOLT");
                             labelLines.push_back("GPU_STEMP");
-                            entryCount++;
                         } else {
                             shouldAdd = true;
                             labelText = "GPU";
@@ -1240,15 +1332,12 @@ public:
                             // BW-stacked with VDDQ/temp split on the right side.
                             labelLines.push_back("RAM_SLOAD_TOP");
                             labelLines.push_back("RAM_SLOAD_BOT");
-                            entryCount++;
                         } else if (wantSplitVDDQ) {
                             labelLines.push_back("RAM_SVDD2");
                             labelLines.push_back("RAM_SVDDQ");
-                            entryCount++;  // two rows count as one extra
                         } else if (wantRAMTempSplit) {
                             labelLines.push_back("RAM_SVDDQ_ONLY");
                             labelLines.push_back("RAM_STEMP");
-                            entryCount++;
                         } else {
                             shouldAdd = true;
                             labelText = "内存";
@@ -1274,7 +1363,6 @@ public:
                         } else if (settings.showComponentTemps) {
                             // Only component temps: single row with HIGH gradient
                             labelLines.push_back("TMP_COMP");
-                            entryCount++;
                         } else {
                             // Only SOC/PCB/Skin (default): single row
                             shouldAdd = true;
@@ -1285,7 +1373,6 @@ public:
                         if (settings.showStackedBAT) {
                             labelLines.push_back("BAT_STOP");
                             labelLines.push_back("BAT_SBOT");
-                            entryCount += 2;
                         } else {
                             shouldAdd = true;
                             labelText = "电池";
@@ -1305,10 +1392,10 @@ public:
                         labelText = "读取速度";
                         flags |= 512;
                     } else if (key == "DTC" && !(flags & 256) && settings.showDTC) {
-                        if (settings.showStackedDTC) {
+                        // Stop Watch timer is always a single value \u2192 force one row.
+                        if (settings.showStackedDTC && !swTimerActive()) {
                             labelLines.push_back("DTC_STOP");
                             labelLines.push_back("DTC_SBOT");
-                            entryCount += 2;
                         } else {
                             shouldAdd = true;
                             labelText = settings.useDTCSymbol ? "\uE007" : "时间";
@@ -1323,11 +1410,9 @@ public:
                     
                     if (shouldAdd) {
                         labelLines.push_back(labelText);
-                        entryCount++;
                         
                         //if (settings.realVolts && key != "BAT" && key != "DRAW" && key != "FPS" && key != "RES") {
                         //    labelLines.push_back(""); // Empty line for voltage info
-                        //    entryCount++;
                         //}
                     }
                 }
@@ -4901,28 +4986,36 @@ public:
             }
             else if (key == "DTC" && !(flags & 256) && settings.showDTC) {
                 if (Temp[0]) strcat(Temp, "\n");
-                char dateTimeStr[64];
-                time_t rawtime = time(NULL);
-                struct tm *timeinfo = localtime(&rawtime);
-                strftime(dateTimeStr, sizeof(dateTimeStr), settings.dtcFormat.c_str(), timeinfo);
-                if (settings.showStackedDTC) {
-                    // Split at DIVIDER_SYMBOL: top half goes on row 1, bottom half on row 2.
-                    // If the user's format has no DIVIDER_SYMBOL, fall back to the whole
-                    // string on the top row + empty bottom row (still 2 label slots).
-                    const std::string dtStr(dateTimeStr);
-                    const size_t divPos = dtStr.find(ult::DIVIDER_SYMBOL);
-                    if (divPos != std::string::npos) {
-                        const std::string topHalf = dtStr.substr(0, divPos);
-                        const std::string botHalf = dtStr.substr(divPos + ult::DIVIDER_SYMBOL.length());
-                        strcat(Temp, topHalf.c_str());
-                        strcat(Temp, "\n");
-                        strcat(Temp, botHalf.c_str());
+                if (swTimerActive()) {
+                    // Stop Watch: single-line elapsed timer replaces the datetime.
+                    // Layout is forced single-row above (labelLines gate on swTimerActive).
+                    char swStr[24];
+                    swFormat(swStr, sizeof(swStr));
+                    strcat(Temp, swStr);
+                } else {
+                    char dateTimeStr[64];
+                    time_t rawtime = time(NULL);
+                    struct tm *timeinfo = localtime(&rawtime);
+                    strftime(dateTimeStr, sizeof(dateTimeStr), settings.dtcFormat.c_str(), timeinfo);
+                    if (settings.showStackedDTC) {
+                        // Split at DIVIDER_SYMBOL: top half goes on row 1, bottom half on row 2.
+                        // If the user's format has no DIVIDER_SYMBOL, fall back to the whole
+                        // string on the top row + empty bottom row (still 2 label slots).
+                        const std::string dtStr(dateTimeStr);
+                        const size_t divPos = dtStr.find(ult::DIVIDER_SYMBOL);
+                        if (divPos != std::string::npos) {
+                            const std::string topHalf = dtStr.substr(0, divPos);
+                            const std::string botHalf = dtStr.substr(divPos + ult::DIVIDER_SYMBOL.length());
+                            strcat(Temp, topHalf.c_str());
+                            strcat(Temp, "\n");
+                            strcat(Temp, botHalf.c_str());
+                        } else {
+                            strcat(Temp, dateTimeStr);
+                            strcat(Temp, "\n");
+                        }
                     } else {
                         strcat(Temp, dateTimeStr);
-                        strcat(Temp, "\n");
                     }
-                } else {
-                    strcat(Temp, dateTimeStr);
                 }
                 flags |= 256;
             }
@@ -5177,7 +5270,15 @@ public:
             static constexpr int JOYSTICK_DEADZONE = 20;
             
             // Choose the appropriate joystick based on which button is held
-            const HidAnalogStickState& activeJoystick = joyStickPosLeft;
+            // Accept EITHER stick while PLUS is held: use whichever is deflected
+            // further from center, so PLUS + left stick and PLUS + right stick both
+            // reposition the overlay identically.
+            const long leftMag2  = (long)joyStickPosLeft.x  * (long)joyStickPosLeft.x  +
+                                   (long)joyStickPosLeft.y  * (long)joyStickPosLeft.y;
+            const long rightMag2 = (long)joyStickPosRight.x * (long)joyStickPosRight.x +
+                                   (long)joyStickPosRight.y * (long)joyStickPosRight.y;
+            const HidAnalogStickState& activeJoystick =
+                (rightMag2 > leftMag2) ? joyStickPosRight : joyStickPosLeft;
             
             // Only move if joystick is outside deadzone
             if (abs(activeJoystick.x) > JOYSTICK_DEADZONE || abs(activeJoystick.y) > JOYSTICK_DEADZONE) {

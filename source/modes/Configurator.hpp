@@ -232,8 +232,32 @@ inline void selectItem(tsl::elm::ListItem*& lastSelected,
 }
 
 // Build a standard OverlayFrame, attach content, and return it.
+// Localize the OverlayFrame subtitle before it is handed to the frame.
+// OverlayFrame draws the subtitle with drawStringWithColoredSections (which only
+// colors the DIVIDER_SYMBOL segments and does NOT consult the translation cache),
+// so unless we translate here the subtitle would always render in English.
+// Mirrors tsl::elm::CategoryHeader's set-time logic: try a full-string cache hit
+// first (covers plain subtitles like "Alpha" / "DTC Format 1"), otherwise translate
+// each divider-separated segment individually (covers composites like
+// "Full <DIV> Configuration <DIV> Paddings"). Divider glyphs are preserved verbatim.
+inline std::string localizeSubtitle(const std::string& subtitle) {
+    std::string sub = subtitle;
+    bool fullHit = false;
+    {
+        std::shared_lock<std::shared_mutex> readLock(tsl::gfx::s_translationCacheMutex);
+        auto it = ult::translationCache.find(sub);
+        if (it != ult::translationCache.end() && it->second != sub) {
+            sub = it->second;
+            fullHit = true;
+        }
+    }
+    if (!fullHit)
+        tsl::gfx::translateStringSegments(sub, tsl::s_dividerSpecialChars);
+    return sub;
+}
+
 inline tsl::elm::Element* makeFrame(const std::string& subtitle, tsl::elm::Element* content) {
-    auto* f = new tsl::elm::OverlayFrame("状态监控", subtitle);
+    auto* f = new tsl::elm::OverlayFrame("状态监控", localizeSubtitle(subtitle));
     f->setContent(content);
     return f;
 }
@@ -835,6 +859,7 @@ public:
             addToggle(list, "堆叠电池", "show_stacked_bat", flags.isMicro);
 
             list->addItem(new tsl::elm::CategoryHeader("日期时间"));
+            addToggle(list, "显示停表",     "show_stopwatch",   true);
             addToggle(list, "使用DTC符号", "use_dtc_symbol",   true);
             addToggle(list, "堆叠日期时间",        "show_stacked_dtc", flags.isMicro);
 
@@ -886,8 +911,8 @@ public:
     SampleRateConfig(const std::string& mode) : modeName(mode), flags(mode) {
         const std::string section = modeToSection(mode);
         const std::string rrVal = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
-        const int defaultSampleRate = (flags.isFPSGraph ? 3 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 2 : defaultRate)));
+        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isMicro || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
+        const int defaultSampleRate = (flags.isFPSGraph ? 3 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isMicro || flags.isGameRes) ? 2 : defaultRate)));
         maxRate = rrVal.empty() ? defaultRate : std::clamp(atoi(rrVal.c_str()), 1, 60);
         const std::string srVal = ult::parseValueFromIniSection(configIniPath, section, "sample_rate");
         currentRate = srVal.empty() ? std::min(defaultSampleRate, maxRate) : std::clamp(atoi(srVal.c_str()), 1, maxRate);
@@ -933,6 +958,122 @@ public:
     }
 };
 
+class MoveDelayConfig : public tsl::Gui {
+private:
+    std::string modeName;
+    ModeFlags   flags;
+    std::string kind;
+    std::string keyName;
+    std::string title;
+    int         currentDelay;
+
+public:
+    MoveDelayConfig(const std::string& mode, const std::string& delayKind)
+        : modeName(mode), flags(mode), kind(delayKind) {
+        keyName = (kind == "touch") ? "touch_move_delay" : "button_move_delay";
+        title   = (kind == "touch") ? "Touch Move Delay" : "Button Move Delay";
+        const int defaultDelay = (kind == "touch") ? 500 : 1000;
+        const std::string section = modeToSection(mode);
+        const std::string value = ult::parseValueFromIniSection(configIniPath, section, keyName);
+        currentDelay = value.empty() ? defaultDelay : std::clamp(atoi(value.c_str()), 0, 1000);
+    }
+    ~MoveDelayConfig() { lastSelectedListItem = nullptr; }
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader(title));
+
+        const std::string section = modeToSection(modeName);
+        for (int delay = 0; delay <= 1000; delay += 50) {
+            auto* delayItem = new tsl::elm::MiniListItem(std::to_string(delay) + " ms");
+            delayItem->setRadioSelector();
+            if (delay == currentDelay)
+                selectItem(lastSelectedListItem, delayItem, ult::CHECKMARK_SYMBOL);
+            delayItem->setClickListener([this, delayItem, delay, section](uint64_t keys) {
+                if (keys & KEY_A) {
+                    ult::setIniFileValue(configIniPath, section, keyName, std::to_string(delay));
+                    selectItem(lastSelectedListItem, delayItem, ult::CHECKMARK_SYMBOL);
+                    return true;
+                }
+                return false;
+            });
+            list->addItem(delayItem);
+        }
+
+        list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
+        return makeFrame(modeDisplayName(modeName) + " " + std::string(ult::DIVIDER_SYMBOL) + " 设置", list);
+    }
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        if (keysDown & KEY_B) {
+            triggerExitFeedback();
+            jumpItemName = "采样率"; jumpItemValue = ""; jumpItemExactMatch = false;
+            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
+            return true;
+        }
+        return false;
+    }
+};
+
+class MoveDelayConfig : public tsl::Gui {
+private:
+    std::string modeName;
+    ModeFlags   flags;
+    std::string kind;
+    std::string keyName;
+    std::string title;
+    int         currentDelay;
+
+public:
+    MoveDelayConfig(const std::string& mode, const std::string& delayKind)
+        : modeName(mode), flags(mode), kind(delayKind) {
+        keyName = (kind == "touch") ? "touch_move_delay" : "button_move_delay";
+        title   = (kind == "touch") ? "Touch Move Delay" : "Button Move Delay";
+        const int defaultDelay = (kind == "touch") ? 500 : 1000;
+        const std::string section = modeToSection(mode);
+        const std::string value = ult::parseValueFromIniSection(configIniPath, section, keyName);
+        currentDelay = value.empty() ? defaultDelay : std::clamp(atoi(value.c_str()), 0, 1000);
+    }
+    ~MoveDelayConfig() { lastSelectedListItem = nullptr; }
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader(title));
+
+        const std::string section = modeToSection(modeName);
+        for (int delay = 0; delay <= 1000; delay += 50) {
+            auto* delayItem = new tsl::elm::MiniListItem(std::to_string(delay) + " ms");
+            delayItem->setRadioSelector();
+            if (delay == currentDelay)
+                selectItem(lastSelectedListItem, delayItem, ult::CHECKMARK_SYMBOL);
+            delayItem->setClickListener([this, delayItem, delay, section](uint64_t keys) {
+                if (keys & KEY_A) {
+                    ult::setIniFileValue(configIniPath, section, keyName, std::to_string(delay));
+                    selectItem(lastSelectedListItem, delayItem, ult::CHECKMARK_SYMBOL);
+                    return true;
+                }
+                return false;
+            });
+            list->addItem(delayItem);
+        }
+
+        list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
+        return makeFrame(modeName + " " + std::string(ult::DIVIDER_SYMBOL) + " Configuration", list);
+    }
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        if (keysDown & KEY_B) {
+            triggerExitFeedback();
+            jumpItemName = title; jumpItemValue = ""; jumpItemExactMatch = false;
+            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
+            return true;
+        }
+        return false;
+    }
+};
+
 // =============================================================================
 // Refresh Rate Configuration
 // =============================================================================
@@ -946,7 +1087,7 @@ public:
     RefreshRateConfig(const std::string& mode) : modeName(mode), flags(mode) {
         const std::string section = modeToSection(mode);
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
+        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isMicro || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
         currentRate = value.empty() ? defaultRate : std::clamp(atoi(value.c_str()), 1, 60);
     }
     ~RefreshRateConfig() { lastSelectedListItem = nullptr; }
@@ -1124,11 +1265,10 @@ public:
 
 // Returns the per-mode default border thickness in tenths of a space (sp),
 // used as the fallback when the ini key is absent.
-// Mini: 10 (1.0 sp)  FPS Counter/Graph: 6 (0.6 sp)  Game Resolutions: 8 (0.8 sp)
+// All modes: 8 (0.8 sp)
 inline int defaultBorderThickness(const std::string& mode) {
-    if (mode == "FPS Counter" || mode == "FPS Graph") return 6;
-    if (mode == "Game Resolutions") return 8;
-    return 10; // Mini (and any other mode)
+    (void)mode;
+    return 8; // 0.8 sp for all modes
 }
 
 // Border thickness for the configurable Switch 2 frame border. Stored in tenths
@@ -2255,15 +2395,15 @@ private:
     int getCurrentRefreshRate() const {
         const std::string section = modeToSection(modeName);
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
+        const int defaultRate = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isMicro || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
         return value.empty() ? defaultRate : atoi(value.c_str());
     }
 
     int getCurrentSampleRate() const {
         const std::string section = modeToSection(modeName);
         const std::string rrVal = ult::parseValueFromIniSection(configIniPath, section, "refresh_rate");
-        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
-        const int defaultSampleRate = (flags.isFPSGraph ? 3 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isGameRes) ? 2 : defaultRate)));
+        const int defaultRate       = flags.isFPSGraph ? 30 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isMicro || flags.isGameRes) ? 30 : (flags.isFull ? 2 : 3)));
+        const int defaultSampleRate = (flags.isFPSGraph ? 3 : (flags.isFPSCounter ? 30 : ((flags.isMini || flags.isMicro || flags.isGameRes) ? 2 : defaultRate)));
         const int maxRate = rrVal.empty() ? defaultRate : std::clamp(atoi(rrVal.c_str()), 1, 60);
         const std::string srVal = ult::parseValueFromIniSection(configIniPath, section, "sample_rate");
         return srVal.empty() ? std::min(defaultSampleRate, maxRate) : std::clamp(atoi(srVal.c_str()), 1, maxRate);
@@ -2274,6 +2414,14 @@ private:
         if (section.empty()) return 0;
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "frame_padding");
         return value.empty() ? 0 : atoi(value.c_str());
+    }
+
+    int getCurrentMoveDelay(const std::string& kind) const {
+        const std::string section = modeToSection(modeName);
+        const std::string keyName = (kind == "touch") ? "touch_move_delay" : "button_move_delay";
+        const int defaultDelay = (kind == "touch") ? 500 : 1000;
+        const std::string value = ult::parseValueFromIniSection(configIniPath, section, keyName);
+        return value.empty() ? defaultDelay : std::clamp(atoi(value.c_str()), 0, 1000);
     }
 
     int getCurrentMicroHPadding() const {
@@ -2481,8 +2629,8 @@ public:
             list->addItem(paddings);
         }
 
-        // Sample Rate (Mini / FPS Counter / FPS Graph / Game Resolutions / Full) — above Refresh Rate
-        if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes || flags.isFull) {
+        // Sample Rate (Mini / Micro / FPS Counter / FPS Graph / Game Resolutions / Full) — above Refresh Rate
+        if (flags.isMini || flags.isMicro || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes || flags.isFull) {
             auto* sampleRate = new tsl::elm::ListItem("采样率");
             sampleRate->setValue(std::to_string(getCurrentSampleRate()) + " Hz");
             sampleRate->setClickListener([this](uint64_t keys) {
@@ -2501,6 +2649,32 @@ public:
                 return false;
             });
             list->addItem(refreshRate);
+        }
+
+        // Touch Move Delay — only for modes whose touch reposition is a
+        // press-and-hold. Full and Micro reposition by swipe gesture, so they
+        // have no touch delay to configure.
+        if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes) {
+            auto* touchMoveDelay = new tsl::elm::ListItem("Touch Move Delay");
+            touchMoveDelay->setValue(std::to_string(getCurrentMoveDelay("touch")) + " ms");
+            touchMoveDelay->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MoveDelayConfig>(modeName, "touch"); return true; }
+                return false;
+            });
+            list->addItem(touchMoveDelay);
+        }
+
+        // Button Move Delay — every mode holds PLUS to enter reposition mode,
+        // including Full and Micro.
+        if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes ||
+            flags.isFull || flags.isMicro) {
+            auto* buttonMoveDelay = new tsl::elm::ListItem("Button Move Delay");
+            buttonMoveDelay->setValue(std::to_string(getCurrentMoveDelay("button")) + " ms");
+            buttonMoveDelay->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<MoveDelayConfig>(modeName, "button"); return true; }
+                return false;
+            });
+            list->addItem(buttonMoveDelay);
         }
 
         // DTC Format (Mini/Micro only)
@@ -2524,7 +2698,7 @@ public:
 
         clearJump();
 
-        auto* rootFrame = new tsl::elm::OverlayFrame("状态监控", modeDisplayName(modeName));
+        auto* rootFrame = new tsl::elm::OverlayFrame("状态监控", modeDisplayName(localizeSubtitle(modeName)));
         rootFrame->setContent(list);
         return rootFrame;
     }
