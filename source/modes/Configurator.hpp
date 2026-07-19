@@ -145,34 +145,34 @@ inline std::string getColorName(const std::string& hexColor) {
         {"#BEB","淡绿色"},   {"#CFA","薄荷绿"},
 
         // 青色系
-        {"#022","深青色"},    {"#055","深蓝绿色"},     {"#066","青色"},
-        {"#08A","天蓝色"},     {"#0AA","水绿色"},          {"#0FF","蓝绿色"},
+        {"#022","深青色"},    {"#055","深蓝绿色"},      {"#066","青色"},
+        {"#08A","天蓝色"},     {"#0AA","水绿色"},           {"#0FF","蓝绿色"},
         {"#799","钢青色"},   {"#8FF","浅蓝绿色"},    {"#9EC","海沫绿"},
 
         // 蓝色系
-        {"#003","深蓝色"},    {"#008","海军蓝"},          {"#04A","钴蓝色"},
-        {"#359","牛仔蓝"},        {"#657","石板海军蓝"},    {"#48B","钢蓝色"},
-        {"#06F","宝蓝色"},   {"#00F","蓝色"},          {"#0AF","天蓝色"},
+        {"#003","深蓝色"},    {"#008","海军蓝"},           {"#04A","钴蓝色"},
+        {"#359","牛仔蓝"},        {"#657","石板海军蓝"},     {"#48B","钢蓝色"},
+        {"#06F","宝蓝色"},   {"#00F","蓝色"},           {"#0AF","天蓝色"},
         {"#69E","矢车菊蓝"},   {"#2DF","浅蓝色"},    {"#8CF","天空蓝"},
         {"#ACE","粉蓝色"},  {"#CEF","冰蓝色"},
 
         // 紫色系
-        {"#202","深紫色"},  {"#404","暗紫色"},   {"#608","靛蓝色"},
-        {"#64F","靛蓝"},  {"#75F","紫蓝色"},   {"#808","紫色"},
-        {"#66C","长春花蓝"},    {"#93C","紫水晶色"},      {"#A0F","紫罗兰色"},
-        {"#969","淡紫色"},         {"#C8F","薰衣草紫"},      {"#CCF","浅长春花蓝"},
-        {"#D7D","兰花紫"},        {"#DAD","梅紫色"},          {"#D9F","蓟色"},
+        {"#202","深紫色"},  {"#404","暗紫色"},    {"#608","靛蓝色"},
+        {"#64F","靛蓝"},  {"#75F","紫蓝色"},    {"#808","紫色"},
+        {"#66C","长春花蓝"},     {"#93C","紫水晶色"},     {"#A0F","紫罗兰色"},
+        {"#969","淡紫色"},          {"#C8F","薰衣草紫"},     {"#CCF","浅长春花蓝"},
+        {"#D7D","兰花紫"},         {"#DAD","梅紫色"},         {"#D9F","蓟色"},
 
         // 品红/粉色系
-        {"#606","深品红"}, {"#F0F","品红色"},       {"#F09","紫红色"},
-        {"#F4A","艳粉色"},     {"#F69","玫瑰色"},          {"#F8A","粉红色"},
-        {"#C89","灰玫瑰色"},   {"#F9C","花瓣色"},         {"#FBD","婴儿粉"},
+        {"#606","深品红"}, {"#F0F","品红色"},        {"#F09","紫红色"},
+        {"#F4A","艳粉色"},     {"#F69","玫瑰色"},           {"#F8A","粉红色"},
+        {"#C89","灰玫瑰色"},   {"#F9C","花瓣色"},          {"#FBD","婴儿粉"},
         {"#FCE","浅粉色"},   {"#FDE","腮红色"},
 
         // 棕色系
-        {"#321","深棕色"},   {"#642","棕色"},         {"#755","暗紫褐"},
-        {"#B73","焦糖色"},      {"#A53","赭色"},        {"#A75","浅棕色"},
-        {"#A98","灰褐色"},        {"#CB8","沙色"},          {"#DB8","棕褐色"},
+        {"#321","深棕色"},   {"#642","棕色"},          {"#755","暗紫褐"},
+        {"#B73","焦糖色"},      {"#A53","赭色"},         {"#A75","浅棕色"},
+        {"#A98","灰褐色"},        {"#CB8","沙色"},           {"#DB8","棕褐色"},
         {"#FE9","卡其色"},
     };
 
@@ -971,7 +971,7 @@ public:
     MoveDelayConfig(const std::string& mode, const std::string& delayKind)
         : modeName(mode), flags(mode), kind(delayKind) {
         keyName = (kind == "touch") ? "touch_move_delay" : "button_move_delay";
-        title   = (kind == "touch") ? "Touch Move Delay" : "Button Move Delay";
+        title   = (kind == "touch") ? "触摸移动延迟" : "按键移动延迟";
         const int defaultDelay = (kind == "touch") ? 500 : 1000;
         const std::string section = modeToSection(mode);
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, keyName);
@@ -1002,64 +1002,6 @@ public:
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
         return makeFrame(modeDisplayName(modeName) + " " + std::string(ult::DIVIDER_SYMBOL) + " 设置", list);
-    }
-
-    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
-                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
-        if (keysDown & KEY_B) {
-            triggerExitFeedback();
-            jumpItemName = "采样率"; jumpItemValue = ""; jumpItemExactMatch = false;
-            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
-            return true;
-        }
-        return false;
-    }
-};
-
-class MoveDelayConfig : public tsl::Gui {
-private:
-    std::string modeName;
-    ModeFlags   flags;
-    std::string kind;
-    std::string keyName;
-    std::string title;
-    int         currentDelay;
-
-public:
-    MoveDelayConfig(const std::string& mode, const std::string& delayKind)
-        : modeName(mode), flags(mode), kind(delayKind) {
-        keyName = (kind == "touch") ? "touch_move_delay" : "button_move_delay";
-        title   = (kind == "touch") ? "Touch Move Delay" : "Button Move Delay";
-        const int defaultDelay = (kind == "touch") ? 500 : 1000;
-        const std::string section = modeToSection(mode);
-        const std::string value = ult::parseValueFromIniSection(configIniPath, section, keyName);
-        currentDelay = value.empty() ? defaultDelay : std::clamp(atoi(value.c_str()), 0, 1000);
-    }
-    ~MoveDelayConfig() { lastSelectedListItem = nullptr; }
-
-    virtual tsl::elm::Element* createUI() override {
-        auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader(title));
-
-        const std::string section = modeToSection(modeName);
-        for (int delay = 0; delay <= 1000; delay += 50) {
-            auto* delayItem = new tsl::elm::MiniListItem(std::to_string(delay) + " ms");
-            delayItem->setRadioSelector();
-            if (delay == currentDelay)
-                selectItem(lastSelectedListItem, delayItem, ult::CHECKMARK_SYMBOL);
-            delayItem->setClickListener([this, delayItem, delay, section](uint64_t keys) {
-                if (keys & KEY_A) {
-                    ult::setIniFileValue(configIniPath, section, keyName, std::to_string(delay));
-                    selectItem(lastSelectedListItem, delayItem, ult::CHECKMARK_SYMBOL);
-                    return true;
-                }
-                return false;
-            });
-            list->addItem(delayItem);
-        }
-
-        list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeName + " " + std::string(ult::DIVIDER_SYMBOL) + " Configuration", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1808,15 +1750,15 @@ public:
         : modeName(mode), fontType(type), flags(mode) {
         // Build a human-readable title for the header and back-navigation jump.
         if (fontType == "handheld")
-            title = "掌机字体大小";
+            title = "掌机字号";
         else if (fontType == "docked")
-            title = "底座字体大小";
+            title = "底座字号";
         else if (fontType == "docked_1080p")
-            title = "1080p 底座字体大小";
+            title = "1080p 底座字号";
         else {
             title = fontType;
             title[0] = std::toupper(title[0]);
-            title += " 字体大小";
+            title += " Font Size";
         }
     }
     ~FontSizeSelector() { lastSelectedListItem = nullptr; }
@@ -1863,7 +1805,7 @@ public:
         }
 
         list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
-        return makeFrame(modeDisplayName(modeName) + " " + ult::DIVIDER_SYMBOL + " 设置 " + ult::DIVIDER_SYMBOL + " 字体大小", list);
+        return makeFrame(modeDisplayName(modeName) + " " + ult::DIVIDER_SYMBOL + " 设置 " + ult::DIVIDER_SYMBOL + " 字号", list);
     }
 
     virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
@@ -1891,7 +1833,7 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("字体大小"));
+        list->addItem(new tsl::elm::CategoryHeader("字号"));
 
         const std::string section = modeToSection(modeName);
         const int defaultSize      = flags.isFPSCounter ? 40 : 15;
@@ -2608,7 +2550,7 @@ public:
 
         // Font Sizes (Mini/Micro/FPS Counter only)
         if (flags.isMini || flags.isMicro || flags.isFPSCounter) {
-            auto* fontSizes = new tsl::elm::ListItem("字体大小");
+            auto* fontSizes = new tsl::elm::ListItem("字号");
             fontSizes->setValue(ult::DROPDOWN_SYMBOL);
             fontSizes->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<FontSizeConfig>(modeName); return true; }
@@ -2655,7 +2597,7 @@ public:
         // press-and-hold. Full and Micro reposition by swipe gesture, so they
         // have no touch delay to configure.
         if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes) {
-            auto* touchMoveDelay = new tsl::elm::ListItem("Touch Move Delay");
+            auto* touchMoveDelay = new tsl::elm::ListItem("触摸移动延迟");
             touchMoveDelay->setValue(std::to_string(getCurrentMoveDelay("touch")) + " ms");
             touchMoveDelay->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<MoveDelayConfig>(modeName, "touch"); return true; }
@@ -2668,7 +2610,7 @@ public:
         // including Full and Micro.
         if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes ||
             flags.isFull || flags.isMicro) {
-            auto* buttonMoveDelay = new tsl::elm::ListItem("Button Move Delay");
+            auto* buttonMoveDelay = new tsl::elm::ListItem("按键移动延迟");
             buttonMoveDelay->setValue(std::to_string(getCurrentMoveDelay("button")) + " ms");
             buttonMoveDelay->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<MoveDelayConfig>(modeName, "button"); return true; }
@@ -2696,9 +2638,55 @@ public:
             list->addItem(dtcFormat2);
         }
 
+        // Mode-specific positioning (kept in main menu — these are positional, not padding)
+        if (flags.isMicro) {
+            auto* textAlign = new tsl::elm::ListItem("文字对齐");
+            textAlign->setValue(getCurrentTextAlign());
+            textAlign->setClickListener([this, textAlign](uint64_t keys) {
+                if (keys & KEY_A) { textAlign->setValue(cycleTextAlign()); return true; }
+                return false;
+            });
+            list->addItem(textAlign);
+
+            auto* layerPos = new tsl::elm::ListItem("垂直位置");
+            layerPos->setValue(getCurrentLayerPosBottom());
+            layerPos->setClickListener([this, layerPos](uint64_t keys) {
+                if (keys & KEY_A) { layerPos->setValue(cycleLayerPosBottom()); return true; }
+                return false;
+            });
+            list->addItem(layerPos);
+
+        } else if (flags.isFull) {
+            auto* layerPos = new tsl::elm::ListItem("水平位置");
+            layerPos->setValue(getCurrentLayerPosRight());
+            layerPos->setClickListener([this, layerPos](uint64_t keys) {
+                if (keys & KEY_A) { layerPos->setValue(cycleLayerPosRight()); return true; }
+                return false;
+            });
+            list->addItem(layerPos);
+        }
+
+        // Mode Combo
+        {
+            const int slotIdx = modeComboIndexFor(modeName);
+            if (slotIdx >= 0) {
+                std::string comboDisplay = readModeCombo(slotIdx);
+                if (comboDisplay.empty()) comboDisplay = ult::OPTION_SYMBOL;
+                else ult::convertComboToUnicode(comboDisplay);
+
+                auto* modeCombo = new tsl::elm::ListItem("模式组合键", comboDisplay);
+                modeCombo->setClickListener([this](uint64_t keys) {
+                    if (keys & KEY_A) { tsl::changeTo<ModeComboConfig>(modeName); return true; }
+                    return false;
+                });
+                list->addItem(modeCombo);
+            }
+        }
+
+        list->jumpToItem(jumpItemName, jumpItemValue, jumpItemExactMatch.load(std::memory_order_acquire));
         clearJump();
 
-        auto* rootFrame = new tsl::elm::OverlayFrame("状态监控", modeDisplayName(localizeSubtitle(modeName)));
+        auto* rootFrame = new tsl::elm::OverlayFrame("状态监控", localizeSubtitle(modeName));
         rootFrame->setContent(list);
         return rootFrame;
     }
