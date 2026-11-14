@@ -740,8 +740,8 @@ public:
             addToggle(list, "显示读取速度",          "show_read_speed",     true);
             addToggle(list, "动态温度颜色", "use_dynamic_colors",  true);
 
-            list->addItem(new tsl::elm::CategoryHeader("RES"));
-            addToggle(list, "Prioritize Max 16:9", "prioritize_max_16_9", false);
+            list->addItem(new tsl::elm::CategoryHeader("分辨率"));
+            addToggle(list, "优先最大 16:9", "prioritize_max_16_9", false);
 
         } else if (flags.isMini || flags.isMicro) {
             list->addItem(new tsl::elm::CategoryHeader("全局"));
@@ -1025,7 +1025,7 @@ public:
 
     virtual tsl::elm::Element* createUI() override {
         auto* list = new tsl::elm::List();
-        list->addItem(new tsl::elm::CategoryHeader("Wheel Period"));
+        list->addItem(new tsl::elm::CategoryHeader("色轮周期"));
 
         const std::string section = modeToSection(modeName);
         for (int period = WHEEL_PERIOD_MIN; period <= WHEEL_PERIOD_MAX; period += WHEEL_PERIOD_STEP) {
@@ -2675,7 +2675,7 @@ public:
         // Wheel Period — modes with the Switch 2 colour-wheel border
         // (Micro and Full have no wheel border).
         if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes) {
-            auto* wheelPeriod = new tsl::elm::ListItem("Wheel Period");
+            auto* wheelPeriod = new tsl::elm::ListItem("色轮周期");
             wheelPeriod->setValue(std::to_string(getCurrentWheelPeriod()) + " s");
             wheelPeriod->setClickListener([this](uint64_t keys) {
                 if (keys & KEY_A) { tsl::changeTo<WheelPeriodConfig>(modeName); return true; }
