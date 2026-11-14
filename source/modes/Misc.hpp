@@ -122,7 +122,7 @@ public:
         });
         
         //tsl::elm::g_disableMenuCacheOnReturn.store(true, std::memory_order_release);
-        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", APP_VERSION, true);
+        tsl::elm::HeaderOverlayFrame* rootFrame = new tsl::elm::HeaderOverlayFrame("状态监控", localizeSubtitle("Miscellaneous"), true);
         rootFrame->setContent(Status);
         
         return rootFrame;

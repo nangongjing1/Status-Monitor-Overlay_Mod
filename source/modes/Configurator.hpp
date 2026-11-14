@@ -232,29 +232,7 @@ inline void selectItem(tsl::elm::ListItem*& lastSelected,
 }
 
 // Build a standard OverlayFrame, attach content, and return it.
-// Localize the OverlayFrame subtitle before it is handed to the frame.
-// OverlayFrame draws the subtitle with drawStringWithColoredSections (which only
-// colors the DIVIDER_SYMBOL segments and does NOT consult the translation cache),
-// so unless we translate here the subtitle would always render in English.
-// Mirrors tsl::elm::CategoryHeader's set-time logic: try a full-string cache hit
-// first (covers plain subtitles like "Alpha" / "DTC Format 1"), otherwise translate
-// each divider-separated segment individually (covers composites like
-// "Full <DIV> Configuration <DIV> Paddings"). Divider glyphs are preserved verbatim.
-inline std::string localizeSubtitle(const std::string& subtitle) {
-    std::string sub = subtitle;
-    bool fullHit = false;
-    {
-        std::shared_lock<std::shared_mutex> readLock(tsl::gfx::s_translationCacheMutex);
-        auto it = ult::translationCache.find(sub);
-        if (it != ult::translationCache.end() && it->second != sub) {
-            sub = it->second;
-            fullHit = true;
-        }
-    }
-    if (!fullHit)
-        tsl::gfx::translateStringSegments(sub, tsl::s_dividerSpecialChars);
-    return sub;
-}
+// localizeSubtitle() lives in Utils.hpp (also used by Full / Battery / Misc headers).
 
 inline tsl::elm::Element* makeFrame(const std::string& subtitle, tsl::elm::Element* content) {
     auto* f = new tsl::elm::OverlayFrame("状态监控", localizeSubtitle(subtitle));
@@ -740,6 +718,7 @@ public:
 
         if (flags.isFPSGraph) {
             list->addItem(new tsl::elm::CategoryHeader("全局"));
+            addToggle(list, "1080p 底座模式",   "use_1080p_docked",   true);
             addToggle(list, "禁用截图", "disable_screenshots", false);
             addToggle(list, "显示信息",                "show_info",           true);
             addToggle(list, "动态温度颜色", "use_dynamic_colors",  true);
@@ -760,6 +739,9 @@ public:
             addToggle(list, "显示分辨率",                 "show_res",            true);
             addToggle(list, "显示读取速度",          "show_read_speed",     true);
             addToggle(list, "动态温度颜色", "use_dynamic_colors",  true);
+
+            list->addItem(new tsl::elm::CategoryHeader("RES"));
+            addToggle(list, "Prioritize Max 16:9", "prioritize_max_16_9", false);
 
         } else if (flags.isMini || flags.isMicro) {
             list->addItem(new tsl::elm::CategoryHeader("全局"));
@@ -849,6 +831,7 @@ public:
             list->addItem(new tsl::elm::CategoryHeader("分辨率"));
             addToggle(list, "显示完整分辨率", "show_full_res", true);
             addToggle(list, "仅主屏",    "show_primary_res", flags.isMicro);
+            addToggle(list, "优先最大 16:9", "prioritize_max_16_9", false);
 
             list->addItem(new tsl::elm::CategoryHeader("FPS"));
             addToggle(list, "整数FPS", "integer_fps", true);
@@ -865,7 +848,9 @@ public:
 
         } else if (flags.isGameRes) {
             list->addItem(new tsl::elm::CategoryHeader("全局"));
+            addToggle(list, "1080p 底座模式",   "use_1080p_docked",   true);
             addToggle(list, "禁用截图", "disable_screenshots", false);
+            addToggle(list, "优先最大 16:9", "prioritize_max_16_9", false);
             addToggle(list, "边框",         "use_border",      true);
             addToggle(list, "动态边框", "dynamic_border",  true);
             addToggle(list, "顺时针边框流动", "cw_border_flow",  true);
@@ -1009,6 +994,65 @@ public:
         if (keysDown & KEY_B) {
             triggerExitFeedback();
             jumpItemName = title; jumpItemValue = ""; jumpItemExactMatch = false;
+            tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
+            return true;
+        }
+        return false;
+    }
+};
+
+// =============================================================================
+// Wheel Period Configuration (modes with the Switch 2 colour-wheel border)
+// Seconds per full wheel rotation; the brightness pulse is locked to it (4/turn).
+// =============================================================================
+static constexpr int WHEEL_PERIOD_DEFAULT = 16; // must match initBorderDefaults() in Utils.hpp
+static constexpr int WHEEL_PERIOD_MIN     = 8;
+static constexpr int WHEEL_PERIOD_MAX     = 20;
+static constexpr int WHEEL_PERIOD_STEP    = 2;
+
+class WheelPeriodConfig : public tsl::Gui {
+private:
+    std::string modeName;
+    int         currentPeriod;
+
+public:
+    WheelPeriodConfig(const std::string& mode) : modeName(mode) {
+        const std::string value = ult::parseValueFromIniSection(configIniPath, modeToSection(mode), "wheel_period");
+        currentPeriod = value.empty() ? WHEEL_PERIOD_DEFAULT
+                                      : std::clamp(atoi(value.c_str()), WHEEL_PERIOD_MIN, WHEEL_PERIOD_MAX);
+    }
+    ~WheelPeriodConfig() { lastSelectedListItem = nullptr; }
+
+    virtual tsl::elm::Element* createUI() override {
+        auto* list = new tsl::elm::List();
+        list->addItem(new tsl::elm::CategoryHeader("Wheel Period"));
+
+        const std::string section = modeToSection(modeName);
+        for (int period = WHEEL_PERIOD_MIN; period <= WHEEL_PERIOD_MAX; period += WHEEL_PERIOD_STEP) {
+            auto* item = new tsl::elm::MiniListItem(std::to_string(period) + " s");
+            item->setRadioSelector();
+            if (period == currentPeriod)
+                selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
+            item->setClickListener([item, period, section](uint64_t keys) {
+                if (keys & KEY_A) {
+                    ult::setIniFileValue(configIniPath, section, "wheel_period", std::to_string(period));
+                    selectItem(lastSelectedListItem, item, ult::CHECKMARK_SYMBOL);
+                    return true;
+                }
+                return false;
+            });
+            list->addItem(item);
+        }
+
+        list->jumpToItem("", ult::CHECKMARK_SYMBOL, false);
+        return makeFrame(modeName + " " + std::string(ult::DIVIDER_SYMBOL) + " Configuration", list);
+    }
+
+    virtual bool handleInput(u64 keysDown, u64 keysHeld, const HidTouchState &touchPos,
+                             HidAnalogStickState joyStickPosLeft, HidAnalogStickState joyStickPosRight) override {
+        if (keysDown & KEY_B) {
+            triggerExitFeedback();
+            jumpItemName = "Wheel Period"; jumpItemValue = ""; jumpItemExactMatch = false;
             tsl::swapTo<ConfiguratorOverlay>(SwapDepth(2), modeName);
             return true;
         }
@@ -1207,10 +1251,11 @@ public:
 
 // Returns the per-mode default border thickness in tenths of a space (sp),
 // used as the fallback when the ini key is absent.
-// All modes: 8 (0.8 sp)
+// Mini: 8 (0.8 sp); FPS Counter / FPS Graph / Game Resolutions: 6 (0.6 sp)
 inline int defaultBorderThickness(const std::string& mode) {
-    (void)mode;
-    return 8; // 0.8 sp for all modes
+    // Must match the per-mode defaults in Utils.hpp GetConfigSettings().
+    if (mode == "Mini") return 8; // 0.8 sp
+    return 6;                     // 0.6 sp: FPS Counter, FPS Graph, Game Resolutions
 }
 
 // Border thickness for the configurable Switch 2 frame border. Stored in tenths
@@ -1458,7 +1503,7 @@ public:
     MiniStackedSpacingConfig() : MiniPaddingConfigBase("stacked_spacing", "堆叠间距", "堆叠间距") {}
 };
 
-class MiniCornerRadiusConfig : public MiniPaddingConfigBase<36, 0, 80, 2> {
+class MiniCornerRadiusConfig : public MiniPaddingConfigBase<50, 0, 80, 2> {
 public:
     MiniCornerRadiusConfig() : MiniPaddingConfigBase("corner_radius", "圆角半径", "圆角半径") {}
 };
@@ -1476,7 +1521,7 @@ public:
     CornerRadiusConfig(const std::string& mode) : modeName(mode) {
         section = modeToSection(mode);
         const std::string value = ult::parseValueFromIniSection(configIniPath, section, "corner_radius");
-        currentRadius = value.empty() ? 36 : std::clamp(atoi(value.c_str()), 0, 80);
+        currentRadius = value.empty() ? 46 : std::clamp(atoi(value.c_str()), 0, 80); // 4.6 sp (non-Mini default)
         currentRadius = ((currentRadius + 1) / 2) * 2;   // snap to step 2
         currentRadius = std::clamp(currentRadius, 0, 80);
     }
@@ -1539,7 +1584,7 @@ private:
     int getCornerRadius() const {
         const std::string section = modeToSection(modeName);
         const std::string v = ult::parseValueFromIniSection(configIniPath, section, "corner_radius");
-        return v.empty() ? 36 : std::clamp(atoi(v.c_str()), 0, 80);
+        return v.empty() ? 46 : std::clamp(atoi(v.c_str()), 0, 80); // 4.6 sp (non-Mini default)
     }
     int getMicroHPadding() const {
         const std::string v = ult::parseValueFromIniSection(configIniPath, "micro", "horizontal_padding");
@@ -1585,7 +1630,7 @@ private:
     }
     int getMiniCornerRadius() const {
         const std::string v = ult::parseValueFromIniSection(configIniPath, "mini", "corner_radius");
-        int val = v.empty() ? 36 : std::clamp(atoi(v.c_str()), 0, 80);
+        int val = v.empty() ? 50 : std::clamp(atoi(v.c_str()), 0, 80);
         val = 0 + ((val - 0 + (2 / 2)) / 2) * 2;
         return std::clamp(val, 0, 80);
     }
@@ -2040,14 +2085,16 @@ private:
     }
 
     // The six Switch 2 frame-border wheel anchor colours (shared by every overlay
-    // that carries the configurable border). Defaults are the muted slate palette.
+    // that carries the configurable border). Defaults: Navy, Burgundy, Royal Blue,
+    // Crimson, Deep Purple, Amethyst (palette values, full opacity) — must match
+    // initBorderDefaults() in Utils.hpp.
     void addBorderWheelColors(tsl::elm::List* list) {
-        addColorItem(list, "边框色轮 1",      "border_wheel_color_1",      "#0C0F");
-        addColorItem(list, "边框色轮 2",      "border_wheel_color_2",      "#64FF");
-        addColorItem(list, "边框色轮 3",      "border_wheel_color_3",      "#08AF");
-        addColorItem(list, "边框色轮 3 深色", "border_wheel_color_3_deep", "#657F");
-        addColorItem(list, "边框色轮 4",      "border_wheel_color_4",      "#A98F");
-        addColorItem(list, "边框色轮 4 深色", "border_wheel_color_4_deep", "#C8FF");
+        addColorItem(list, "边框色轮 1",      "border_wheel_color_1",      "#008F");
+        addColorItem(list, "边框色轮 2",      "border_wheel_color_2",      "#802F");
+        addColorItem(list, "边框色轮 3",      "border_wheel_color_3",      "#06FF");
+        addColorItem(list, "边框色轮 3 深色", "border_wheel_color_3_deep", "#B22F");
+        addColorItem(list, "边框色轮 4",      "border_wheel_color_4",      "#404F");
+        addColorItem(list, "边框色轮 4 深色", "border_wheel_color_4_deep", "#93CF");
     }
 
 public:
@@ -2358,6 +2405,12 @@ private:
         return value.empty() ? 0 : atoi(value.c_str());
     }
 
+    int getCurrentWheelPeriod() const {
+        const std::string value = ult::parseValueFromIniSection(configIniPath, modeToSection(modeName), "wheel_period");
+        return value.empty() ? WHEEL_PERIOD_DEFAULT
+                             : std::clamp(atoi(value.c_str()), WHEEL_PERIOD_MIN, WHEEL_PERIOD_MAX);
+    }
+
     int getCurrentMoveDelay(const std::string& kind) const {
         const std::string section = modeToSection(modeName);
         const std::string keyName = (kind == "touch") ? "touch_move_delay" : "button_move_delay";
@@ -2417,7 +2470,7 @@ private:
 
     int getCurrentMiniCornerRadius() const {
         const std::string value = ult::parseValueFromIniSection(configIniPath, "mini", "corner_radius");
-        return value.empty() ? 36 : std::clamp(atoi(value.c_str()), 0, 80);
+        return value.empty() ? 50 : std::clamp(atoi(value.c_str()), 0, 80);
     }
 
     std::string getDTCFormatName(const std::string& formatStr) const {
@@ -2617,6 +2670,18 @@ public:
                 return false;
             });
             list->addItem(buttonMoveDelay);
+        }
+
+        // Wheel Period — modes with the Switch 2 colour-wheel border
+        // (Micro and Full have no wheel border).
+        if (flags.isMini || flags.isFPSCounter || flags.isFPSGraph || flags.isGameRes) {
+            auto* wheelPeriod = new tsl::elm::ListItem("Wheel Period");
+            wheelPeriod->setValue(std::to_string(getCurrentWheelPeriod()) + " s");
+            wheelPeriod->setClickListener([this](uint64_t keys) {
+                if (keys & KEY_A) { tsl::changeTo<WheelPeriodConfig>(modeName); return true; }
+                return false;
+            });
+            list->addItem(wheelPeriod);
         }
 
         // DTC Format (Mini/Micro only)
